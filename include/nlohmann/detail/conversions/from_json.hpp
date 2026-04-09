@@ -34,6 +34,10 @@
     #include <optional> // optional
 #endif
 
+#if JSON_HAS_FILESYSTEM || JSON_HAS_EXPERIMENTAL_FILESYSTEM
+    #include <string_view> // u8string_view
+#endif
+
 NLOHMANN_JSON_NAMESPACE_BEGIN
 namespace detail
 {
@@ -394,7 +398,7 @@ inline void from_json(const BasicJsonType& j, ConstructibleObjectType& obj)
 }
 
 // overload for arithmetic types, not chosen for basic_json template arguments
-// (BooleanType, etc..); note: Is it really necessary to provide explicit
+// (BooleanType, etc.); note: Is it really necessary to provide explicit
 // overloads for boolean_t etc. in case of a custom BooleanType which is not
 // an arithmetic type?
 template < typename BasicJsonType, typename ArithmeticType,
@@ -539,7 +543,10 @@ inline void from_json(const BasicJsonType& j, std_fs::path& p)
         JSON_THROW(type_error::create(302, concat("type must be string, but is ", j.type_name()), &j));
     }
     const auto& s = *j.template get_ptr<const typename BasicJsonType::string_t*>();
-#ifdef JSON_HAS_CPP_20
+    // Checking for C++20 standard or later can be insufficient in case the
+    // library support for char8_t is either incomplete or was disabled
+    // altogether. Use the __cpp_lib_char8_t feature test instead.
+#if defined(__cpp_lib_char8_t) && (__cpp_lib_char8_t >= 201907L)
     p = std_fs::path(std::u8string_view(reinterpret_cast<const char8_t*>(s.data()), s.size()));
 #else
     p = std_fs::u8path(s); // accepts UTF-8 encoded std::string in C++17, deprecated in C++20

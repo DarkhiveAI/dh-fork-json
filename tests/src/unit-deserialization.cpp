@@ -227,7 +227,7 @@ TEST_CASE("deserialization")
             ss1 << R"(["foo",1,2,3,false,{"one":1}])";
             ss2 << R"(["foo",1,2,3,false,{"one":1}])";
             ss3 << R"(["foo",1,2,3,false,{"one":1}])";
-            json j = json::parse(ss1);
+            const json j = json::parse(ss1);
             CHECK(json::accept(ss2));
             CHECK(j == json({"foo", 1, 2, 3, false, {{"one", 1}}}));
 
@@ -246,7 +246,7 @@ TEST_CASE("deserialization")
         SECTION("string literal")
         {
             const auto* s = R"(["foo",1,2,3,false,{"one":1}])";
-            json j = json::parse(s);
+            const json j = json::parse(s);
             CHECK(json::accept(s));
             CHECK(j == json({"foo", 1, 2, 3, false, {{"one", 1}}}));
 
@@ -265,7 +265,7 @@ TEST_CASE("deserialization")
         SECTION("string_t")
         {
             json::string_t const s = R"(["foo",1,2,3,false,{"one":1}])";
-            json j = json::parse(s);
+            const json j = json::parse(s);
             CHECK(json::accept(s));
             CHECK(j == json({"foo", 1, 2, 3, false, {{"one", 1}}}));
 
@@ -1134,15 +1134,16 @@ TEST_CASE("deserialization")
     }
 }
 
-// select the types to test - char8_t is only available in C++20
+// select the types to test - char8_t is only available since C++20 if and only
+// if __cpp_char8_t is defined.
 #define TYPE_LIST(...) __VA_ARGS__
-#ifdef JSON_HAS_CPP_20
+#if defined(__cpp_char8_t) && (__cpp_char8_t >= 201811L)
     #define ASCII_TYPES TYPE_LIST(char, wchar_t, char16_t, char32_t, char8_t)
 #else
     #define ASCII_TYPES TYPE_LIST(char, wchar_t, char16_t, char32_t)
 #endif
 
-TEST_CASE_TEMPLATE("deserialization of different character types (ASCII)", T, ASCII_TYPES) // NOLINT(readability-math-missing-parentheses)
+TEST_CASE_TEMPLATE("deserialization of different character types (ASCII)", T, ASCII_TYPES) // NOLINT(readability-math-missing-parentheses, bugprone-throwing-static-initialization)
 {
     std::vector<T> const v = {'t', 'r', 'u', 'e'};
     CHECK(json::parse(v) == json(true));
@@ -1154,7 +1155,7 @@ TEST_CASE_TEMPLATE("deserialization of different character types (ASCII)", T, AS
     CHECK(l.events == std::vector<std::string>({"boolean(true)"}));
 }
 
-TEST_CASE_TEMPLATE("deserialization of different character types (UTF-8)", T, char, unsigned char, std::uint8_t) // NOLINT(readability-math-missing-parentheses)
+TEST_CASE_TEMPLATE("deserialization of different character types (UTF-8)", T, char, unsigned char, std::uint8_t) // NOLINT(readability-math-missing-parentheses, bugprone-throwing-static-initialization)
 {
     // a star emoji
     std::vector<T> const v = {'"', static_cast<T>(0xe2u), static_cast<T>(0xadu), static_cast<T>(0x90u), static_cast<T>(0xefu), static_cast<T>(0xb8u), static_cast<T>(0x8fu), '"'};
@@ -1166,7 +1167,7 @@ TEST_CASE_TEMPLATE("deserialization of different character types (UTF-8)", T, ch
     CHECK(l.events.size() == 1);
 }
 
-TEST_CASE_TEMPLATE("deserialization of different character types (UTF-16)", T, char16_t) // NOLINT(readability-math-missing-parentheses)
+TEST_CASE_TEMPLATE("deserialization of different character types (UTF-16)", T, char16_t) // NOLINT(readability-math-missing-parentheses, bugprone-throwing-static-initialization)
 {
     // a star emoji
     std::vector<T> const v = {static_cast<T>('"'), static_cast<T>(0x2b50), static_cast<T>(0xfe0f), static_cast<T>('"')};
@@ -1178,7 +1179,7 @@ TEST_CASE_TEMPLATE("deserialization of different character types (UTF-16)", T, c
     CHECK(l.events.size() == 1);
 }
 
-TEST_CASE_TEMPLATE("deserialization of different character types (UTF-32)", T, char32_t) // NOLINT(readability-math-missing-parentheses)
+TEST_CASE_TEMPLATE("deserialization of different character types (UTF-32)", T, char32_t) // NOLINT(readability-math-missing-parentheses, bugprone-throwing-static-initialization)
 {
     // a star emoji
     std::vector<T> const v = {static_cast<T>('"'), static_cast<T>(0x2b50), static_cast<T>(0xfe0f), static_cast<T>('"')};
