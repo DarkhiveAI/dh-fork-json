@@ -3,7 +3,7 @@
 // |  |  |__   |  |  | | | |  version 3.12.0
 // |_____|_____|_____|_|___|  https://github.com/nlohmann/json
 //
-// SPDX-FileCopyrightText: 2013 - 2025 Niels Lohmann <https://nlohmann.me>
+// SPDX-FileCopyrightText: 2013-2026 Niels Lohmann <https://nlohmann.me>
 // SPDX-License-Identifier: MIT
 
 /****************************************************************************\
@@ -253,7 +253,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
     {
         basic_json result;
 
-        result["copyright"] = "(C) 2013-2025 Niels Lohmann";
+        result["copyright"] = "(C) 2013-2026 Niels Lohmann";
         result["name"] = "JSON for Modern C++";
         result["url"] = "https://github.com/nlohmann/json";
         result["version"]["string"] =
@@ -955,6 +955,15 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
         }
         else
         {
+#if JSON_BRACE_INIT_COPY_SEMANTICS
+            if (type_deduction && init.size() == 1)
+            {
+                *this = init.begin()->moved_or_copied();
+                set_parents();
+                assert_invariant();
+                return;
+            }
+#endif
             // the initializer list describes an array -> create an array
             m_data.m_type = value_t::array;
             m_data.m_value.array = create<array_t>(init.begin(), init.end());
@@ -4122,22 +4131,6 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
                           const bool ignore_comments = false,
                           const bool ignore_trailing_commas = false)
     {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wtautological-pointer-compare"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wnonnull-compare"
-#endif
-        if (sax == nullptr)
-        {
-            JSON_THROW(other_error::create(502, "SAX handler must not be null", nullptr));
-        }
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
         auto ia = detail::input_adapter(std::forward<InputType>(i));
         return format == input_format_t::json
                ? parser(std::move(ia), nullptr, true, ignore_comments, ignore_trailing_commas).sax_parse(sax, strict)
@@ -4154,22 +4147,6 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
                           const bool ignore_comments = false,
                           const bool ignore_trailing_commas = false)
     {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wtautological-pointer-compare"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wnonnull-compare"
-#endif
-        if (sax == nullptr)
-        {
-            JSON_THROW(other_error::create(502, "SAX handler must not be null", nullptr));
-        }
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
         auto ia = detail::input_adapter(std::move(first), std::move(last));
         return format == input_format_t::json
                ? parser(std::move(ia), nullptr, true, ignore_comments, ignore_trailing_commas).sax_parse(sax, strict)
@@ -4190,22 +4167,6 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
                           const bool ignore_comments = false,
                           const bool ignore_trailing_commas = false)
     {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wtautological-pointer-compare"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wnonnull-compare"
-#endif
-        if (sax == nullptr)
-        {
-            JSON_THROW(other_error::create(502, "SAX handler must not be null", nullptr));
-        }
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
         auto ia = i.get();
         return format == input_format_t::json
                // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
@@ -5274,25 +5235,43 @@ inline namespace json_literals
 /// @sa https://json.nlohmann.me/api/basic_json/operator_literal_json/
 JSON_HEDLEY_NON_NULL(1)
 #if !defined(JSON_HEDLEY_GCC_VERSION) || JSON_HEDLEY_GCC_VERSION_CHECK(4,9,0)
-    inline nlohmann::json operator ""_json(const char* s, std::size_t n)
+    inline nlohmann::json operator""_json(const char* s, std::size_t n)
 #else
-    inline nlohmann::json operator "" _json(const char* s, std::size_t n)
+    // GCC 4.8 requires a space between "" and suffix
+    inline nlohmann::json operator"" _json(const char* s, std::size_t n)
 #endif
 {
     return nlohmann::json::parse(s, s + n);
 }
 
+#if defined(__cpp_char8_t)
+JSON_HEDLEY_NON_NULL(1)
+inline nlohmann::json operator""_json(const char8_t* s, std::size_t n)
+{
+    return nlohmann::json::parse(reinterpret_cast<const char*>(s),
+                                 reinterpret_cast<const char*>(s) + n);
+}
+#endif
+
 /// @brief user-defined string literal for JSON pointer
 /// @sa https://json.nlohmann.me/api/basic_json/operator_literal_json_pointer/
 JSON_HEDLEY_NON_NULL(1)
 #if !defined(JSON_HEDLEY_GCC_VERSION) || JSON_HEDLEY_GCC_VERSION_CHECK(4,9,0)
-    inline nlohmann::json::json_pointer operator ""_json_pointer(const char* s, std::size_t n)
+    inline nlohmann::json::json_pointer operator""_json_pointer(const char* s, std::size_t n)
 #else
-    inline nlohmann::json::json_pointer operator "" _json_pointer(const char* s, std::size_t n)
+    // GCC 4.8 requires a space between "" and suffix
+    inline nlohmann::json::json_pointer operator"" _json_pointer(const char* s, std::size_t n)
 #endif
 {
     return nlohmann::json::json_pointer(std::string(s, n));
 }
+
+#if defined(__cpp_char8_t)
+inline nlohmann::json::json_pointer operator""_json_pointer(const char8_t* s, std::size_t n)
+{
+    return nlohmann::json::json_pointer(std::string(reinterpret_cast<const char*>(s), n));
+}
+#endif
 
 }  // namespace json_literals
 }  // namespace literals
@@ -5354,11 +5333,12 @@ inline void swap(nlohmann::NLOHMANN_BASIC_JSON_TPL& j1, nlohmann::NLOHMANN_BASIC
 
 #if JSON_USE_GLOBAL_UDLS
     #if !defined(JSON_HEDLEY_GCC_VERSION) || JSON_HEDLEY_GCC_VERSION_CHECK(4,9,0)
-        using nlohmann::literals::json_literals::operator ""_json; // NOLINT(misc-unused-using-decls,google-global-names-in-headers)
-        using nlohmann::literals::json_literals::operator ""_json_pointer; //NOLINT(misc-unused-using-decls,google-global-names-in-headers)
+        using nlohmann::literals::json_literals::operator""_json; // NOLINT(misc-unused-using-decls,google-global-names-in-headers)
+        using nlohmann::literals::json_literals::operator""_json_pointer; //NOLINT(misc-unused-using-decls,google-global-names-in-headers)
     #else
-        using nlohmann::literals::json_literals::operator "" _json; // NOLINT(misc-unused-using-decls,google-global-names-in-headers)
-        using nlohmann::literals::json_literals::operator "" _json_pointer; //NOLINT(misc-unused-using-decls,google-global-names-in-headers)
+        // GCC 4.8 requires a space between "" and suffix
+        using nlohmann::literals::json_literals::operator"" _json; // NOLINT(misc-unused-using-decls,google-global-names-in-headers)
+        using nlohmann::literals::json_literals::operator"" _json_pointer; //NOLINT(misc-unused-using-decls,google-global-names-in-headers)
     #endif
 #endif
 

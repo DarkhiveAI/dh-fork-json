@@ -80,6 +80,8 @@ You can sponsor this library at [GitHub Sponsors](https://github.com/sponsors/nl
 
 - [Martti Laine](https://github.com/codeclown)
 - [Paul Harrington](https://github.com/phrrngtn)
+- [Mercedes-Benz Group](https://github.com/mercedes-benz)
+- [Ryan McCaffery](https://github.com/mccaffers)
 
 ### :label: Named Sponsors
 
@@ -173,7 +175,7 @@ json data = json::parse(f);
 
 ### Creating `json` objects from JSON literals
 
-Assume you want to create hard-code this literal JSON value in a file, as a `json` object:
+Assume you want to hard-code this literal JSON value as a `json` object:
 
 ```json
 {
@@ -345,7 +347,7 @@ Note the difference between serialization and assignment:
 json j_string = "this is a string";
 
 // retrieve the string value
-auto cpp_string = j_string.template get<std::string>();
+auto cpp_string = j_string.get<std::string>();
 // retrieve the string value (alternative when a variable already exists)
 std::string cpp_string2;
 j_string.get_to(cpp_string2);
@@ -354,7 +356,7 @@ j_string.get_to(cpp_string2);
 std::string serialized_string = j_string.dump();
 
 // output of original string
-std::cout << cpp_string << " == " << cpp_string2 << " == " << j_string.template get<std::string>() << '\n';
+std::cout << cpp_string << " == " << cpp_string2 << " == " << j_string.get<std::string>() << '\n';
 // output of serialized value
 std::cout << j_string << " == " << serialized_string << std::endl;
 ```
@@ -527,7 +529,7 @@ for (auto& element : j) {
 }
 
 // getter/setter
-const auto tmp = j[0].template get<std::string>();
+const auto tmp = j[0].get<std::string>();
 j[1] = 42;
 bool foo = j.at(2);
 
@@ -734,7 +736,7 @@ You can switch off implicit conversions by defining `JSON_USE_IMPLICIT_CONVERSIO
 // strings
 std::string s1 = "Hello, world!";
 json js = s1;
-auto s2 = js.template get<std::string>();
+auto s2 = js.get<std::string>();
 // NOT RECOMMENDED
 std::string s3 = js;
 std::string s4;
@@ -743,7 +745,7 @@ s4 = js;
 // Booleans
 bool b1 = true;
 json jb = b1;
-auto b2 = jb.template get<bool>();
+auto b2 = jb.get<bool>();
 // NOT RECOMMENDED
 bool b3 = jb;
 bool b4;
@@ -752,7 +754,7 @@ b4 = jb;
 // numbers
 int i = 42;
 json jn = i;
-auto f = jn.template get<double>();
+auto f = jn.get<double>();
 // NOT RECOMMENDED
 double f2 = jb;
 double f3;
@@ -795,9 +797,9 @@ j["age"] = p.age;
 
 // convert from JSON: copy each value from the JSON object
 ns::person p {
-    j["name"].template get<std::string>(),
-    j["address"].template get<std::string>(),
-    j["age"].template get<int>()
+    j["name"].get<std::string>(),
+    j["address"].get<std::string>(),
+    j["age"].get<int>()
 };
 ```
 
@@ -814,7 +816,7 @@ std::cout << j << std::endl;
 // {"address":"744 Evergreen Terrace","age":60,"name":"Ned Flanders"}
 
 // conversion: json -> person
-auto p2 = j.template get<ns::person>();
+auto p2 = j.get<ns::person>();
 
 // that's it
 assert(p == p2);
@@ -841,13 +843,13 @@ namespace ns {
 ```
 
 That's all! When calling the `json` constructor with your type, your custom `to_json` method will be automatically called.
-Likewise, when calling `template get<your_type>()` or `get_to(your_type&)`, the `from_json` method will be called.
+Likewise, when calling `get<your_type>()` or `get_to(your_type&)`, the `from_json` method will be called.
 
 Some important things:
 
 - Those methods **MUST** be in your type's namespace (which can be the global namespace), or the library will not be able to locate them (in this example, they are in namespace `ns`, where `person` is defined).
 - Those methods **MUST** be available (e.g., proper headers must be included) everywhere you use these conversions. Look at [issue 1108](https://github.com/nlohmann/json/issues/1108) for errors that may occur otherwise.
-- When using `template get<your_type>()`, `your_type` **MUST** be [DefaultConstructible](https://en.cppreference.com/w/cpp/named_req/DefaultConstructible). (There is a way to bypass this requirement described later.)
+- When using `get<your_type>()`, `your_type` **MUST** be [DefaultConstructible](https://en.cppreference.com/w/cpp/named_req/DefaultConstructible). (There is a way to bypass this requirement described later.)
 - In function `from_json`, use function [`at()`](https://json.nlohmann.me/api/basic_json/at/) to access the object values rather than `operator[]`. In case a key does not exist, `at` throws an exception that you can handle, whereas `operator[]` exhibits undefined behavior.
 - You do not need to add serializers or deserializers for STL types like `std::vector`: the library already implements these.
 
@@ -927,8 +929,8 @@ namespace nlohmann {
             if (j.is_null()) {
                 opt = boost::none;
             } else {
-                opt = j.template get<T>(); // same as above, but with
-                                           // adl_serializer<T>::from_json
+                opt = j.get<T>(); // same as above, but with
+                                  // adl_serializer<T>::from_json
             }
         }
     };
@@ -955,7 +957,7 @@ namespace nlohmann {
         // note: the return type is no longer 'void', and the method only takes
         // one argument
         static move_only_type from_json(const json& j) {
-            return {j.template get<int>()};
+            return {j.get<int>()};
         }
 
         // Here's the catch! You must provide a to_json method! Otherwise, you
@@ -1019,7 +1021,7 @@ struct bad_serializer
     static void to_json(const BasicJsonType& j, T& value) {
       // this calls BasicJsonType::json_serializer<T>::from_json(j, value)
       // if BasicJsonType::json_serializer == bad_serializer ... oops!
-      value = j.template get<T>(); // oops!
+      value = j.get<T>(); // oops!
     }
 };
 ```
@@ -1059,11 +1061,11 @@ assert(j == "stopped");
 
 // json string to enum
 json j3 = "running";
-assert(j3.template get<TaskState>() == TS_RUNNING);
+assert(j3.get<TaskState>() == TS_RUNNING);
 
 // undefined json value to enum (where the first map entry above is the default)
 json jPi = 3.14;
-assert(jPi.template get<TaskState>() == TS_INVALID);
+assert(jPi.get<TaskState>() == TS_INVALID);
 ```
 
 Just as in [Arbitrary Type Conversions](#arbitrary-types-conversions) above,
@@ -1073,7 +1075,7 @@ Just as in [Arbitrary Type Conversions](#arbitrary-types-conversions) above,
 
 Other Important points:
 
-- When using `template get<ENUM_TYPE>()`, undefined JSON values will default to the first pair specified in your map. Select this default pair carefully.
+- When using `get<ENUM_TYPE>()`, undefined JSON values will default to the first pair specified in your map. Select this default pair carefully.
 - If an enum or JSON value is specified more than once in your map, the first matching occurrence from the top of the map will be returned when converting to or from JSON.
 
 ### Binary formats (BSON, CBOR, MessagePack, UBJSON, and BJData)
@@ -1155,7 +1157,7 @@ The library is used in multiple projects, applications, operating systems, etc. 
 
 ## Supported compilers
 
-Though it's 2025 already, the support for C++11 is still a bit sparse. Currently, the following compilers are known to work:
+Though it's 2026 already, the support for C++11 is still a bit sparse. Currently, the following compilers are known to work:
 
 - GCC 4.8 - 14.2 (and possibly later)
 - Clang 3.4 - 21.0 (and possibly later)
@@ -1334,7 +1336,7 @@ pkg-config nlohmann_json --cflags
 
 The class is licensed under the [MIT License](https://opensource.org/licenses/MIT):
 
-Copyright &copy; 2013-2025 [Niels Lohmann](https://nlohmann.me)
+Copyright &copy; 2013-2026 [Niels Lohmann](https://nlohmann.me)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -1865,7 +1867,7 @@ ctest --output-on-failure
 
 Note that during the `ctest` stage, several JSON test files are downloaded from an [external repository](https://github.com/nlohmann/json_test_data). If policies forbid downloading artifacts during testing, you can download the files yourself and pass the directory with the test files via `-DJSON_TestDataDirectory=path` to CMake. Then, no Internet connectivity is required. See [issue #2189](https://github.com/nlohmann/json/issues/2189) for more information.
 
-If the test suite is not found, several test suites will fail like this:
+If the testdata is not found, several test suites will fail like this:
 
 ```
 ===============================================================================
@@ -1882,6 +1884,8 @@ json/tests/src/make_test_data_available.hpp:23: FATAL ERROR: REQUIRE( utils::che
 ```
 
 In case you have downloaded the library rather than checked out the code via Git, test `cmake_fetch_content_configure` will fail. Please execute `ctest -LE git_required` to skip these tests. See [issue #2189](https://github.com/nlohmann/json/issues/2189) for more information.
+
+Some tests are requiring network to be properly execute. They are labeled as `git_required`. Please execute `ctest -LE git_required` to skip these tests. See [issue #4851](https://github.com/nlohmann/json/issues/4851) for more information.
 
 Some tests change the installed files and hence make the whole process not reproducible. Please execute `ctest -LE not_reproducible` to skip these tests. See [issue #2324](https://github.com/nlohmann/json/issues/2324) for more information. Furthermore, assertions must be switched off to ensure reproducible builds (see [discussion 4494](https://github.com/nlohmann/json/discussions/4494)).
 

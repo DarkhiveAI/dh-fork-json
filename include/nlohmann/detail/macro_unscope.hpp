@@ -3,7 +3,7 @@
 // |  |  |__   |  |  | | | |  version 3.12.0
 // |_____|_____|_____|_|___|  https://github.com/nlohmann/json
 //
-// SPDX-FileCopyrightText: 2013 - 2025 Niels Lohmann <https://nlohmann.me>
+// SPDX-FileCopyrightText: 2013-2026 Niels Lohmann <https://nlohmann.me>
 // SPDX-License-Identifier: MIT
 
 #pragma once
@@ -26,6 +26,7 @@
 #undef JSON_NO_UNIQUE_ADDRESS
 #undef JSON_DISABLE_ENUM_SERIALIZATION
 #undef JSON_USE_GLOBAL_UDLS
+#undef JSON_BRACE_INIT_COPY_SEMANTICS
 
 #ifndef JSON_TEST_KEEP_MACROS
     #undef JSON_CATCH

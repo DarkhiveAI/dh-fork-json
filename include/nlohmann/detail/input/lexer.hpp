@@ -3,7 +3,7 @@
 // |  |  |__   |  |  | | | |  version 3.12.0
 // |_____|_____|_____|_|___|  https://github.com/nlohmann/json
 //
-// SPDX-FileCopyrightText: 2013 - 2025 Niels Lohmann <https://nlohmann.me>
+// SPDX-FileCopyrightText: 2013-2026 Niels Lohmann <https://nlohmann.me>
 // SPDX-License-Identifier: MIT
 
 #pragma once
@@ -863,6 +863,8 @@ class lexer : public lexer_base<BasicJsonType>
                             break;
                     }
                 }
+
+                JSON_HEDLEY_UNREACHABLE();
             }
 
             // multi-line comments skip input until */ is read
@@ -898,6 +900,8 @@ class lexer : public lexer_base<BasicJsonType>
                             continue;
                     }
                 }
+
+                JSON_HEDLEY_UNREACHABLE();
             }
 
             // unexpected character after reading '/'
