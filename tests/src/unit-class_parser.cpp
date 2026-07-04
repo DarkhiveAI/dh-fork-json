@@ -16,6 +16,11 @@ using nlohmann::json;
 #endif
 
 #include <valarray>
+#include <algorithm>
+#include <list>
+#include <sstream>
+#include <string>
+#include <vector>
 
 namespace
 {
@@ -1723,5 +1728,137 @@ TEST_CASE("parser class")
         json _;
         CHECK_THROWS_WITH_AS(_ = json::parse("/a", nullptr, true, true), "[json.exception.parse_error.101] parse error at line 1, column 2: syntax error while parsing value - invalid comment; expecting '/' or '*' after '/'; last read: '/a'", json::parse_error);
         CHECK_THROWS_WITH_AS(_ = json::parse("/*", nullptr, true, true), "[json.exception.parse_error.101] parse error at line 1, column 3: syntax error while parsing value - invalid comment; missing closing '*/'; last read: '/*<U+0000>'", json::parse_error);
+    }
+}
+
+namespace
+{
+template<typename InputType>
+std::string parse_error_message(const InputType& input)
+{
+    try
+    {
+        json::parse(input);
+    }
+    catch (const json::exception& e)
+    {
+        return e.what();
+    }
+    return "<no error>";
+}
+} // namespace
+
+TEST_CASE("last-read diagnostics are identical across input adapters")
+{
+    // The lexer reconstructs the "last read" token lazily for seekable adapters
+    // (contiguous byte input) and copies it eagerly for streaming adapters.
+    // Both strategies must yield byte-for-byte identical error messages.
+
+    // a selection of malformed inputs that exercise different token kinds,
+    // whitespace/structural accumulation, number overflow, and control-char
+    // escaping in the reconstructed "last read" token
+    const std::vector<std::string> inputs =
+    {
+        "[1,2,x]",
+        "  \n  @",
+        "{\"a\": }",
+        "1.18973e+4932",
+        "\"\t\"",
+        "tru",
+        "[1 2]",
+        "\xEF\xBB\xBF   nul",
+    };
+
+    for (const auto& s : inputs)
+    {
+        CAPTURE(s);
+
+        // reference: contiguous std::string -> seekable (lazy) path
+        const std::string reference = parse_error_message(s);
+        CHECK(reference != "<no error>");
+
+        // const char* -> also seekable
+        CHECK(parse_error_message(s.c_str()) == reference);
+
+        // std::vector<char> iterators -> seekable (random-access)
+        {
+            const std::vector<char> v(s.begin(), s.end());
+            std::string got;
+            try
+            {
+                json::parse(v.begin(), v.end());
+            }
+            catch (const json::exception& e)
+            {
+                got = e.what();
+            }
+            CHECK(got == reference);
+        }
+
+        // std::list iterators -> non-seekable (bidirectional) eager path
+        {
+            const std::list<char> l(s.begin(), s.end());
+            std::string got;
+            try
+            {
+                json::parse(l.begin(), l.end());
+            }
+            catch (const json::exception& e)
+            {
+                got = e.what();
+            }
+            CHECK(got == reference);
+        }
+
+        // std::istringstream -> non-seekable streaming eager path
+        {
+            std::istringstream ss(s);
+            std::string got;
+            try
+            {
+                json::parse(ss);
+            }
+            catch (const json::exception& e)
+            {
+                got = e.what();
+            }
+            CHECK(got == reference);
+        }
+
+        // wide strings -> wide_string_input_adapter eager path; only comparable
+        // for ASCII input, as non-ASCII bytes are transcoded to different UTF-8
+        const bool is_ascii = std::all_of(s.begin(), s.end(), [](char c)
+        {
+            return static_cast<unsigned char>(c) < 0x80;
+        });
+        if (is_ascii)
+        {
+            {
+                const std::u16string w16(s.begin(), s.end());
+                std::string got;
+                try
+                {
+                    json::parse(w16);
+                }
+                catch (const json::exception& e)
+                {
+                    got = e.what();
+                }
+                CHECK(got == reference);
+            }
+            {
+                const std::u32string w32(s.begin(), s.end());
+                std::string got;
+                try
+                {
+                    json::parse(w32);
+                }
+                catch (const json::exception& e)
+                {
+                    got = e.what();
+                }
+                CHECK(got == reference);
+            }
+        }
     }
 }
