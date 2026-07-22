@@ -4327,6 +4327,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
     static std::vector<std::uint8_t> to_cbor(const basic_json& j)
     {
         std::vector<std::uint8_t> result;
+        result.reserve(detail::binary_reserve_hint(j));
         detail::binary_writer<basic_json, std::uint8_t, detail::output_vector_sink<std::uint8_t>>(
             detail::output_vector_sink<std::uint8_t>(result)).write_cbor(j);
         return result;
@@ -4351,6 +4352,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
     static std::vector<std::uint8_t> to_msgpack(const basic_json& j)
     {
         std::vector<std::uint8_t> result;
+        result.reserve(detail::binary_reserve_hint(j));
         detail::binary_writer<basic_json, std::uint8_t, detail::output_vector_sink<std::uint8_t>>(
             detail::output_vector_sink<std::uint8_t>(result)).write_msgpack(j);
         return result;
@@ -4377,6 +4379,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
             const bool use_type = false)
     {
         std::vector<std::uint8_t> result;
+        result.reserve(detail::binary_reserve_hint(j));
         detail::binary_writer<basic_json, std::uint8_t, detail::output_vector_sink<std::uint8_t>>(
             detail::output_vector_sink<std::uint8_t>(result)).write_ubjson(j, use_size, use_type);
         return result;
@@ -4406,6 +4409,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
             const bjdata_version_t version = bjdata_version_t::draft2)
     {
         std::vector<std::uint8_t> result;
+        result.reserve(detail::binary_reserve_hint(j));
         detail::binary_writer<basic_json, std::uint8_t, detail::output_vector_sink<std::uint8_t>>(
             detail::output_vector_sink<std::uint8_t>(result)).write_ubjson(j, use_size, use_type, true, true, version);
         return result;
@@ -4434,6 +4438,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
     static std::vector<std::uint8_t> to_bson(const basic_json& j)
     {
         std::vector<std::uint8_t> result;
+        result.reserve(detail::binary_reserve_hint(j));
         detail::binary_writer<basic_json, std::uint8_t, detail::output_vector_sink<std::uint8_t>>(
             detail::output_vector_sink<std::uint8_t>(result)).write_bson(j);
         return result;
