@@ -819,6 +819,8 @@ TEST_CASE("UBJSON")
                     CHECK_THROWS_WITH_AS(_ = json::from_ubjson(vec2), "[json.exception.parse_error.115] parse error at byte 5: syntax error while parsing UBJSON high-precision number: invalid number text: 1A", json::parse_error);
                     std::vector<uint8_t> const vec3 = {'H', 'i', 2, '1', '.'};
                     CHECK_THROWS_WITH_AS(_ = json::from_ubjson(vec3), "[json.exception.parse_error.115] parse error at byte 5: syntax error while parsing UBJSON high-precision number: invalid number text: 1.", json::parse_error);
+                    std::vector<uint8_t> const vec_overflow = {'H', 'i', 5, '1', 'e', '4', '0', '0'};
+                    CHECK_THROWS_WITH_AS(_ = json::from_ubjson(vec_overflow), "[json.exception.out_of_range.406] number overflow parsing '1e400'", json::out_of_range&);
                     std::vector<uint8_t> const vec4 = {'H', 2, '1', '0'};
                     CHECK_THROWS_WITH_AS(_ = json::from_ubjson(vec4), "[json.exception.parse_error.113] parse error at byte 2: syntax error while parsing UBJSON size: expected length type specification (U, i, I, l, L) after '#'; last byte: 0x02", json::parse_error);
                 }
@@ -1861,6 +1863,31 @@ TEST_CASE("UBJSON")
                 std::vector<uint8_t> const v = {'S', '1', 'a'};
                 json _;
                 CHECK_THROWS_WITH_AS(_ = json::from_ubjson(v), "[json.exception.parse_error.113] parse error at byte 2: syntax error while parsing UBJSON string: expected length type specification (U, i, I, l, L); last byte: 0x31", json::parse_error&);
+            }
+
+            SECTION("negative length")
+            {
+                json _;
+
+                std::vector<uint8_t> const vi = {'S', 'i', 0xFF};
+                CHECK_THROWS_WITH_AS(_ = json::from_ubjson(vi), "[json.exception.parse_error.113] parse error at byte 3: syntax error while parsing UBJSON string: string length must not be negative", json::parse_error&);
+                CHECK(json::from_ubjson(vi, true, false).is_discarded());
+
+                std::vector<uint8_t> const vI = {'S', 'I', 0xFF, 0xFF};
+                CHECK_THROWS_WITH_AS(_ = json::from_ubjson(vI), "[json.exception.parse_error.113] parse error at byte 4: syntax error while parsing UBJSON string: string length must not be negative", json::parse_error&);
+                CHECK(json::from_ubjson(vI, true, false).is_discarded());
+
+                std::vector<uint8_t> const vl = {'S', 'l', 0xFF, 0xFF, 0xFF, 0xFF};
+                CHECK_THROWS_WITH_AS(_ = json::from_ubjson(vl), "[json.exception.parse_error.113] parse error at byte 6: syntax error while parsing UBJSON string: string length must not be negative", json::parse_error&);
+                CHECK(json::from_ubjson(vl, true, false).is_discarded());
+
+                std::vector<uint8_t> const vL = {'S', 'L', 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+                CHECK_THROWS_WITH_AS(_ = json::from_ubjson(vL), "[json.exception.parse_error.113] parse error at byte 10: syntax error while parsing UBJSON string: string length must not be negative", json::parse_error&);
+                CHECK(json::from_ubjson(vL, true, false).is_discarded());
+
+                // a length of zero remains valid and yields an empty string
+                std::vector<uint8_t> const v0 = {'S', 'i', 0};
+                CHECK(json::from_ubjson(v0) == json(""));
             }
         }
 
