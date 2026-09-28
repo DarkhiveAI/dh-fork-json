@@ -80,6 +80,7 @@ This method always returns `end()` when executed on a JSON type that is not an o
 
 - [count](count.md) returns the number of occurrences of a key
 - [contains](contains.md) checks whether a key exists
+- [basic_json_view::find](../basic_json_view/find.md) - the same lookup on a zero-copy view
 
 ## Version history
 
