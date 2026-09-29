@@ -1067,8 +1067,9 @@ class builder
     {
         const std::uint64_t done = static_cast<std::uint64_t>(at - b) + 1;
         const std::uint64_t guess = static_cast<std::uint64_t>(n) * static_cast<std::uint64_t>(e - b + 1) / done;
+        const std::uint64_t grown = guess + (guess / 4) + 64; // a variable: GCC calls a cast of the sum useless where std::uint64_t is std::size_t
         doc.tape_size = n;
-        doc.reserve((std::max)(static_cast<std::size_t>(guess + (guess / 4) + 64), n + (n / 2) + 64));
+        doc.reserve((std::max)(static_cast<std::size_t>(grown), n + (n / 2) + 64));
         return doc.tape;
     }
 
@@ -1290,6 +1291,14 @@ class builder
         return w;
     }
 
+    /// a compile-time option as a runtime condition: testing the template
+    /// argument directly makes a condition like `TrailingCommas && c == ']'`
+    /// constant when the option is off, which MSVC reports as C4127
+    static NLOHMANN_VIEW_ALWAYS_INLINE bool enabled(bool option) noexcept
+    {
+        return option;
+    }
+
     /// The parse state and the parser proper. The cursor is a local object of
     /// run() whose address never escapes (everything it calls out of line is a
     /// member of the builder and gets the positions it needs), so that the
@@ -1419,7 +1428,7 @@ arr_next:
                 {
                     return false;
                 }
-                if (TrailingCommas && cur() == ']')
+                if (enabled(TrailingCommas) && cur() == ']')
                 {
                     ++p;
                     goto close_container;
@@ -1486,7 +1495,7 @@ obj_next:
                 {
                     return false;
                 }
-                if (TrailingCommas && cur() == '}')
+                if (enabled(TrailingCommas) && cur() == '}')
                 {
                     ++p;
                     goto close_object;
@@ -1636,7 +1645,7 @@ indent_done:
                 {
                     ++p;
                 }
-                if (Comments && cur() == '/')
+                if (enabled(Comments) && cur() == '/')
                 {
                     const unsigned char* const q = cold.comment(p);
                     if (q == nullptr)
@@ -3354,7 +3363,7 @@ index_status array_index(const StringType& s, std::size_t& idx) noexcept
         }
         v = (v * 10) + d;
     }
-    if (v >= static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)()))
+    if (v >= (std::numeric_limits<std::size_t>::max)()) // (std::size_t converts to std::uint64_t implicitly)
     {
         return index_status::too_large;
     }
