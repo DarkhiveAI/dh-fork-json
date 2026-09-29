@@ -109,20 +109,26 @@ NLOHMANN_VIEW_NOINLINE FloatType float_value(const char* first, const node& n)
     return v;
 }
 
+/// the significand (at most 19 digits) and the decimal exponent of a float token
+struct token_decimal
+{
+    std::uint64_t w;
+    std::int64_t q;
+    bool negative;
+};
+
 /*!
-@brief the double of a float token with at most 19 digits, from its layout
+@brief the digits of a float token with at most 19 digits, from its layout
 
 The digit layout recorded while parsing says where the integer digits, the
 fraction digits, and the exponent are, so the digits are read eight at a
-time without scanning. The result is correctly rounded (Clinger's fast path
-where both operands are exact, else the Eisel-Lemire algorithm, which needs
-no fallback for up to 19 digits), so it is the value parse() produces.
+time without scanning.
 
 @param[in] p  first character of the token
 @param[in] e  end of the token
 @param[in] limit  end of the readable memory (the source text)
 */
-NLOHMANN_VIEW_ALWAYS_INLINE double layout_double(const unsigned char* p, const unsigned char* e, unsigned int_digits, unsigned frac_digits, const unsigned char* limit) noexcept
+NLOHMANN_VIEW_ALWAYS_INLINE token_decimal layout_decimal(const unsigned char* p, const unsigned char* e, unsigned int_digits, unsigned frac_digits, const unsigned char* limit) noexcept
 {
     const bool negative = *p == '-';
     p += negative ? 1 : 0;
@@ -156,6 +162,21 @@ NLOHMANN_VIEW_ALWAYS_INLINE double layout_double(const unsigned char* p, const u
         q += exp_negative ? -exp_value : exp_value;
     }
 
+    return token_decimal{w, q, negative};
+}
+
+/*!
+@brief the double of the digits of a float token (at most 19 digits)
+
+The result is correctly rounded (Clinger's fast path where both operands are
+exact, else the Eisel-Lemire algorithm, which needs no fallback for up to 19
+digits), so it is the value parse() produces.
+*/
+NLOHMANN_VIEW_ALWAYS_INLINE double decimal_to_double(const token_decimal& d) noexcept
+{
+    const std::uint64_t w = d.w;
+    const std::int64_t q = d.q;
+    const bool negative = d.negative;
     double result = 0;
     if (w != 0)
     {
@@ -173,6 +194,12 @@ NLOHMANN_VIEW_ALWAYS_INLINE double layout_double(const unsigned char* p, const u
         std::memcpy(&result, &bits, sizeof(result));
     }
     return negative ? -result : result;
+}
+
+/// the double of a float token with at most 19 digits, from its layout
+NLOHMANN_VIEW_ALWAYS_INLINE double layout_double(const unsigned char* p, const unsigned char* e, unsigned int_digits, unsigned frac_digits, const unsigned char* limit) noexcept
+{
+    return decimal_to_double(layout_decimal(p, e, int_digits, frac_digits, limit));
 }
 
 /// the value of a float set by an edit: its token (the shortest round-trip
