@@ -39,6 +39,7 @@ using nlohmann::ordered_json_view;
 
 namespace
 {
+#if !defined(JSON_NOEXCEPTION)
 // the exception parse() throws for a text, or "" if it accepts it
 std::string parse_exception(const std::string& text, bool comments = false, bool trailing_commas = false)
 {
@@ -67,6 +68,7 @@ std::string view_exception(const std::string& text, bool comments = false, bool 
     }
     return "";
 }
+#endif
 
 // a small deterministic generator of documents
 struct generator
@@ -156,7 +158,7 @@ TEST_CASE("json_view")
             CHECK(v.materialize() == j);
         }
 
-        const json_view invalid;
+        const json_view invalid{};
         CHECK(invalid.is_discarded());
         CHECK(!static_cast<bool>(invalid));
         CHECK(invalid.type() == json::value_t::discarded);
@@ -201,9 +203,11 @@ TEST_CASE("json_view")
                 })
         {
             CAPTURE(text);
+#if !defined(JSON_NOEXCEPTION)
             const std::string expected = parse_exception(text);
             REQUIRE(!expected.empty());
             CHECK(view_exception(text) == expected);
+#endif
             CHECK(!json_document::accept(text));
             const json_document d = json_document::parse(text, false);
             CHECK(d.is_discarded());
@@ -211,8 +215,9 @@ TEST_CASE("json_view")
             CHECK(d.node_count() == 0);
         }
         // the exception types
-        CHECK_THROWS_AS(json_document::parse("[1,"), json::parse_error&);
-        CHECK_THROWS_AS(json_document::parse("1e400"), json::out_of_range&);
+        json_document _;
+        CHECK_THROWS_AS(_ = json_document::parse("[1,"), json::parse_error&);
+        CHECK_THROWS_AS(_ = json_document::parse("1e400"), json::out_of_range&);
     }
 
     SECTION("parse options")
@@ -227,7 +232,9 @@ TEST_CASE("json_view")
                 const bool comments = (options & 1) != 0;
                 const bool trailing_commas = (options & 2) != 0;
                 CHECK(json_document::accept(text, comments, trailing_commas) == json::accept(text, comments, trailing_commas));
+#if !defined(JSON_NOEXCEPTION)
                 CHECK(view_exception(text, comments, trailing_commas) == parse_exception(text, comments, trailing_commas));
+#endif
             }
         }
     }
@@ -239,7 +246,9 @@ TEST_CASE("json_view")
         const std::string nul_in_comment("[1, // c\0\n2]", 12);
         CHECK(json_document::accept(nul_in_comment, true) == json::accept(nul_in_comment, true));
         CHECK(json_document::parse("\xEF\xBB\xBF[1]").root().materialize() == json::parse("\xEF\xBB\xBF[1]"));
+#if !defined(JSON_NOEXCEPTION)
         CHECK(view_exception("\xEF\xBB") == parse_exception("\xEF\xBB"));
+#endif
     }
 
     SECTION("inputs")
@@ -385,6 +394,7 @@ TEST_CASE("json_view")
 
 namespace
 {
+#if !defined(JSON_NOEXCEPTION)
 // the exception a call throws, or "" if it throws none
 template<typename F>
 std::string exception_of(F f)
@@ -399,6 +409,7 @@ std::string exception_of(F f)
     }
     return "";
 }
+#endif
 
 // compares a view with the ordered_json value materialize() gives for it:
 // types, sizes, elements and members (by index, key, and iteration), in
@@ -567,6 +578,7 @@ TEST_CASE("json_view element access and iteration")
             const json_document d = json_document::parse(text);
             const json_view v = d.root();
             const json j = v.materialize();
+#if !defined(JSON_NOEXCEPTION)
             if (!j.is_object())
             {
                 CHECK(exception_of([&] { static_cast<void>(v["a"]); }) == exception_of([&] { static_cast<void>(j["a"]); }));
@@ -588,6 +600,7 @@ TEST_CASE("json_view element access and iteration")
                 CHECK(exception_of([&] { static_cast<void>(v.front()); }) == exception_of([&] { static_cast<void>(j.front()); }));
                 CHECK(exception_of([&] { static_cast<void>(v.back()); }) == exception_of([&] { static_cast<void>(j.back()); }));
             }
+#endif
             CHECK(v.contains("a") == j.contains("a"));
             CHECK(v.count("a") == j.count("a"));
             CHECK((v.find("a") == v.end()) == (j.find("a") == j.end())); // NOLINT(readability-container-contains): find() is what is tested
@@ -599,7 +612,7 @@ TEST_CASE("json_view element access and iteration")
         CHECK(!d.root()["a"][0]);
         CHECK_THROWS_WITH_AS(d.root()["a"].front(), "[json.exception.invalid_iterator.214] cannot get value", json::invalid_iterator&);
         CHECK_THROWS_WITH_AS(d.root()["a"].back(), "[json.exception.invalid_iterator.214] cannot get value", json::invalid_iterator&);
-        const json_view invalid;
+        const json_view invalid{};
         CHECK(invalid.begin() == invalid.end());
         CHECK(std::string(invalid.type_name()) == "discarded");
         CHECK_THROWS_WITH_AS(invalid["a"], "[json.exception.type_error.305] cannot use operator[] with a string argument with discarded", json::type_error&);
@@ -659,6 +672,7 @@ TEST_CASE("json_view element access and iteration")
 
 namespace
 {
+#if !defined(JSON_NOEXCEPTION)
 // an exception message without the context that basic_json adds with
 // JSON_DIAGNOSTICS ("(/path) ") and JSON_DIAGNOSTIC_POSITIONS ("(bytes 1-2) ");
 // the view's exceptions have no such context
@@ -676,6 +690,7 @@ std::string without_path(std::string msg)
     }
     return msg;
 }
+#endif
 
 // the bits of a float, to compare values bit for bit
 std::uint64_t bits(double x)
@@ -755,6 +770,7 @@ void check_values(const ordered_json_view& v, const ordered_json& j, const std::
             break;
     }
 
+#if !defined(JSON_NOEXCEPTION)
     // conversions to the wrong type throw what basic_json throws
     if (!j.is_number())
     {
@@ -771,6 +787,7 @@ void check_values(const ordered_json_view& v, const ordered_json& j, const std::
     {
         CHECK(exception_of([&] { static_cast<void>(v.get<std::map<std::string, int>>()); }) == without_path(exception_of([&] { static_cast<void>(j.get<std::map<std::string, int>>()); })));
     }
+#endif
 
     if (v.is_array())
     {
@@ -931,7 +948,7 @@ TEST_CASE("json_view values")
         // a duplicate key: the last value, as parse()
         CHECK((json_document::parse(R"({"a":1,"a":2})").root().get<std::map<std::string, int>>() == std::map<std::string, int> {{"a", 2}}));
 
-        const json_view invalid;
+        const json_view invalid{};
         CHECK_THROWS_WITH_AS(invalid.get<int>(), "[json.exception.type_error.302] type must be number, but is discarded", json::type_error&);
         CHECK(invalid.get<json>().is_discarded());
     }
@@ -952,10 +969,12 @@ TEST_CASE("json_view values")
         // with a JSON pointer, arrays can be asked as well
         CHECK(v["o"]["x"].value(json::json_pointer("/1"), 0) == j["o"]["x"].value(json::json_pointer("/1"), 0));
         CHECK(v["o"]["x"].value(json::json_pointer("/7"), 3) == j["o"]["x"].value(json::json_pointer("/7"), 3));
+#if !defined(JSON_NOEXCEPTION)
         CHECK(exception_of([&] { static_cast<void>(v["o"]["x"].value("k", 0)); }) == without_path(exception_of([&] { static_cast<void>(j["o"]["x"].value("k", 0)); })));
         CHECK(exception_of([&] { static_cast<void>(v.value("s", 0)); }) == without_path(exception_of([&] { static_cast<void>(j.value("s", 0)); })));
         CHECK(exception_of([&] { static_cast<void>(v["n"].value("x", 0)); }) == without_path(exception_of([&] { static_cast<void>(j["n"].value("x", 0)); })));
         CHECK(exception_of([&] { static_cast<void>(v["n"].value(json::json_pointer("/x"), 0)); }) == without_path(exception_of([&] { static_cast<void>(j["n"].value(json::json_pointer("/x"), 0)); })));
+#endif
     }
 }
 
@@ -994,6 +1013,7 @@ TEST_CASE("json_view JSON pointers")
         }
     }
 
+#if !defined(JSON_NOEXCEPTION)
     SECTION("errors are those of basic_json")
     {
         const std::string text = R"({"a": [1, {"b": null}], "c": "s", "": {"": 0}, "a~b": 1, "c/d": 2})";
@@ -1026,11 +1046,16 @@ TEST_CASE("json_view JSON pointers")
             // (basic_json::contains() throws out_of_range.404 for an empty
             // array index token, although it is not meant to throw; the view
             // answers false)
-            const std::string contains_error = exception_of([&] { static_cast<void>(j.contains(p)); });
+            const std::string contains_error = exception_of([&]
+            {
+                const bool found = j.contains(p);
+                static_cast<void>(found);
+            });
             CHECK(v.contains(p) == (contains_error.empty() && j.contains(p)));
             CHECK(exception_of([&] { static_cast<void>(v.value(p, 5)); }) == without_path(exception_of([&] { static_cast<void>(j.value(p, 5)); })));
         }
     }
+#endif
 }
 
 TEST_CASE("json_view dump")
