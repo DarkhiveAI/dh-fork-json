@@ -54,7 +54,7 @@
 #include <algorithm> // max
 #include <array> // array
 #include <cstddef> // size_t, ptrdiff_t
-#include <cstdint> // uint8_t, uint16_t, uint32_t, uint64_t
+#include <cstdint> // int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 #include <cstring> // memcmp, memcpy
 #include <limits> // numeric_limits
 #include <string> // string
@@ -519,16 +519,13 @@ inline std::uint64_t int_pow10(unsigned k) noexcept
     return table[k];
 }
 
-/// value of k <= 8 digits at p in one step if [p, p + 8) lies below limit,
-/// else one digit at a time
+/// value of 0 < k < 8 digits at p in one step if [p, p + 8) lies below
+/// limit, else one digit at a time (whole blocks of eight digits are read by
+/// parse_upto19() directly)
 NLOHMANN_VIEW_ALWAYS_INLINE std::uint64_t parse_upto8(const unsigned char* p, unsigned k, const unsigned char* limit) noexcept
 {
     if (NLOHMANN_VIEW_LIKELY(limit - p >= 8))
     {
-        if (k == 8)
-        {
-            return parse_eight_digits(read_eight_bytes(p));
-        }
         // move the k digits to the top and pad the vacated low bytes with '0'
         const unsigned shift = 8 * (8 - k);
         return parse_eight_digits((read_eight_bytes(p) << shift) | (0x3030303030303030u >> (8 * k)));
@@ -1430,7 +1427,7 @@ indent_done:
                 frac_digits = static_cast<std::size_t>(p - f0);
                 is_float = true;
             }
-            long exponent = 0;
+            std::int64_t exponent = 0;
             if (p != e && (*p | 0x20) == 'e')
             {
                 ++p;
@@ -1484,7 +1481,7 @@ indent_done:
             }
             // parse() rejects floats that overflow; only numbers whose magnitude
             // could reach 1e308 need the conversion
-            if (NLOHMANN_VIEW_UNLIKELY(static_cast<long>(int_digits) + exponent > 300 && kind == value_t::number_float))
+            if (NLOHMANN_VIEW_UNLIKELY(static_cast<std::int64_t>(int_digits) + exponent > 300 && kind == value_t::number_float))
             {
                 if (builder::float_overflows(s, p))
                 {
@@ -1759,6 +1756,7 @@ NLOHMANN_JSON_NAMESPACE_END
 
 
 #include <cstdint> // int64_t, uint8_t
+#include <string> // string
 #include <vector> // vector
 
 // #include <nlohmann/json.hpp>
