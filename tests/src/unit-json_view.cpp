@@ -671,6 +671,7 @@ TEST_CASE("json_view element access and iteration")
 
 namespace
 {
+#if !defined(JSON_NOEXCEPTION)
 // an exception message without the context that basic_json adds with
 // JSON_DIAGNOSTICS ("(/path) ") and JSON_DIAGNOSTIC_POSITIONS ("(bytes 1-2) ");
 // the view's exceptions have no such context
@@ -688,6 +689,7 @@ std::string without_path(std::string msg)
     }
     return msg;
 }
+#endif
 
 // the bits of a float, to compare values bit for bit
 std::uint64_t bits(double x)
@@ -767,6 +769,7 @@ void check_values(const ordered_json_view& v, const ordered_json& j, const std::
             break;
     }
 
+#if !defined(JSON_NOEXCEPTION)
     // conversions to the wrong type throw what basic_json throws
     if (!j.is_number())
     {
@@ -783,6 +786,7 @@ void check_values(const ordered_json_view& v, const ordered_json& j, const std::
     {
         CHECK(exception_of([&] { static_cast<void>(v.get<std::map<std::string, int>>()); }) == without_path(exception_of([&] { static_cast<void>(j.get<std::map<std::string, int>>()); })));
     }
+#endif
 
     if (v.is_array())
     {
@@ -959,10 +963,12 @@ TEST_CASE("json_view values")
         // with a JSON pointer, arrays can be asked as well
         CHECK(v["o"]["x"].value(json::json_pointer("/1"), 0) == j["o"]["x"].value(json::json_pointer("/1"), 0));
         CHECK(v["o"]["x"].value(json::json_pointer("/7"), 3) == j["o"]["x"].value(json::json_pointer("/7"), 3));
+#if !defined(JSON_NOEXCEPTION)
         CHECK(exception_of([&] { static_cast<void>(v["o"]["x"].value("k", 0)); }) == without_path(exception_of([&] { static_cast<void>(j["o"]["x"].value("k", 0)); })));
         CHECK(exception_of([&] { static_cast<void>(v.value("s", 0)); }) == without_path(exception_of([&] { static_cast<void>(j.value("s", 0)); })));
         CHECK(exception_of([&] { static_cast<void>(v["n"].value("x", 0)); }) == without_path(exception_of([&] { static_cast<void>(j["n"].value("x", 0)); })));
         CHECK(exception_of([&] { static_cast<void>(v["n"].value(json::json_pointer("/x"), 0)); }) == without_path(exception_of([&] { static_cast<void>(j["n"].value(json::json_pointer("/x"), 0)); })));
+#endif
     }
 }
 
@@ -1001,6 +1007,7 @@ TEST_CASE("json_view JSON pointers")
         }
     }
 
+#if !defined(JSON_NOEXCEPTION)
     SECTION("errors are those of basic_json")
     {
         const std::string text = R"({"a": [1, {"b": null}], "c": "s", "": {"": 0}, "a~b": 1, "c/d": 2})";
@@ -1033,9 +1040,14 @@ TEST_CASE("json_view JSON pointers")
             // (basic_json::contains() throws out_of_range.404 for an empty
             // array index token, although it is not meant to throw; the view
             // answers false)
-            const std::string contains_error = exception_of([&] { static_cast<void>(j.contains(p)); });
+            const std::string contains_error = exception_of([&]
+            {
+                const bool found = j.contains(p);
+                static_cast<void>(found);
+            });
             CHECK(v.contains(p) == (contains_error.empty() && j.contains(p)));
             CHECK(exception_of([&] { static_cast<void>(v.value(p, 5)); }) == without_path(exception_of([&] { static_cast<void>(j.value(p, 5)); })));
         }
     }
+#endif
 }
