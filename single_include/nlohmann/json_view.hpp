@@ -739,8 +739,9 @@ class builder
     {
         const std::uint64_t done = static_cast<std::uint64_t>(at - b) + 1;
         const std::uint64_t guess = static_cast<std::uint64_t>(n) * static_cast<std::uint64_t>(e - b + 1) / done;
+        const std::uint64_t grown = guess + (guess / 4) + 64; // a variable: GCC calls a cast of the sum useless where std::uint64_t is std::size_t
         doc.tape_size = n;
-        doc.reserve((std::max)(static_cast<std::size_t>(guess + (guess / 4) + 64), n + (n / 2) + 64));
+        doc.reserve((std::max)(static_cast<std::size_t>(grown), n + (n / 2) + 64));
         return doc.tape;
     }
 
@@ -2466,7 +2467,7 @@ index_status array_index(const StringType& s, std::size_t& idx) noexcept
         }
         v = (v * 10) + d;
     }
-    if (v >= static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)()))
+    if (v >= (std::numeric_limits<std::size_t>::max)()) // (std::size_t converts to std::uint64_t implicitly)
     {
         return index_status::too_large;
     }
