@@ -1580,6 +1580,7 @@ NLOHMANN_JSON_NAMESPACE_END
 
 #include <algorithm> // sort, stable_sort
 #include <cstddef> // size_t
+#include <string> // string
 #include <utility> // move, pair
 #include <vector> // vector
 
