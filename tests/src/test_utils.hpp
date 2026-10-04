@@ -11,7 +11,8 @@
 #include <array> // array
 #include <cstdint> // uint8_t
 #include <cstddef> // size_t
-#include <fstream> // ifstream, istreambuf_iterator, ios
+#include <fstream> // ifstream, ios
+#include <iterator> // istream_iterator
 #include <vector> // vector
 
 namespace utils
