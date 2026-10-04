@@ -31,6 +31,7 @@
 #include <nlohmann/detail/macro_scope.hpp>
 #include <nlohmann/detail/meta/is_sax.hpp>
 #include <nlohmann/detail/meta/type_traits.hpp>
+#include <nlohmann/detail/output/error_handler.hpp>
 #include <nlohmann/detail/string_concat.hpp>
 #include <nlohmann/detail/string_utils.hpp>
 #include <nlohmann/detail/value_t.hpp>
@@ -108,8 +109,16 @@ class binary_reader
     @brief create a binary reader
 
     @param[in] adapter  input adapter to read from
+    @param[in] format   the binary format to parse
+    @param[in] error_handler_  how to treat text strings and object keys that
+               are not well-formed UTF-8; none of the supported formats
+               requires a decoder to reject those, so the default is to
+               @ref error_handler_t::keep them unchanged, as every binary
+               reader did before this parameter existed
     */
-    explicit binary_reader(InputAdapterType&& adapter, const input_format_t format = input_format_t::json) noexcept : ia(std::move(adapter)), input_format(format)
+    explicit binary_reader(InputAdapterType&& adapter, const input_format_t format = input_format_t::json,
+                           const error_handler_t error_handler_ = error_handler_t::keep) noexcept
+        : ia(std::move(adapter)), input_format(format), error_handler(error_handler_)
     {
         (void)detail::is_sax_static_asserts<SAX, BasicJsonType> {};
     }
@@ -428,7 +437,7 @@ class binary_reader
     {
         if (get_bson_cstr_bulk(result, std::integral_constant<bool, bulk_scan> {}))
         {
-            return true;
+            return check_string_utf8(result, "key");
         }
 
         auto out = std::back_inserter(result);
@@ -441,7 +450,7 @@ class binary_reader
             }
             if (current == 0x00)
             {
-                return true;
+                return check_string_utf8(result, "key");
             }
             *out++ = static_cast<typename string_t::value_type>(current);
         }
@@ -522,7 +531,7 @@ class binary_reader
                                             "string"), nullptr));
         }
 
-        return true;
+        return check_string_utf8(result, "string");
     }
 
     /*!
@@ -614,13 +623,13 @@ class binary_reader
             case 0x10: // int32
             {
                 std::int32_t value{};
-                return get_number<std::int32_t, true>(input_format_t::bson, value) && sax->number_integer(value);
+                return get_number<std::int32_t, true>(input_format_t::bson, value) && sax->number_integer(conditional_static_cast<number_integer_t>(value));
             }
 
             case 0x12: // int64
             {
                 std::int64_t value{};
-                return get_number<std::int64_t, true>(input_format_t::bson, value) && sax->number_integer(value);
+                return get_number<std::int64_t, true>(input_format_t::bson, value) && sax->number_integer(conditional_static_cast<number_integer_t>(value));
             }
 
             case 0x11: // uint64
@@ -659,7 +668,7 @@ class binary_reader
                                     parse_error::create(112, chars_read,
                                             exception_message(input_format_t::cbor, "negative integer overflow", "value"), nullptr));
         }
-        return sax->number_integer(static_cast<number_integer_t>(-1) - static_cast<number_integer_t>(number));
+        return sax->number_integer(conditional_static_cast<number_integer_t>(static_cast<number_integer_t>(-1) - static_cast<number_integer_t>(number)));
     }
 
     /*!
@@ -1149,7 +1158,7 @@ class binary_reader
 
     @return whether string creation completed
     */
-    bool get_cbor_string(string_t& result)
+    bool get_cbor_string(string_t& result, const char* context = "string")
     {
         // number of indefinite-length strings that have been opened and not
         // closed yet. RFC 8949, Section 3.2.3 does not permit nesting them,
@@ -1179,7 +1188,7 @@ class binary_reader
             {
                 if (--open == 0)
                 {
-                    return true;
+                    return check_string_utf8(result, context);
                 }
                 get();
                 continue;
@@ -1192,7 +1201,7 @@ class binary_reader
 
             if (open == 0)
             {
-                return true;
+                return check_string_utf8(result, context);
             }
 
             get();
@@ -1216,7 +1225,7 @@ class binary_reader
         // EOF and major type 3 (text string) are left to get_cbor_string
         if (current == char_traits<char_type>::eof() || (static_cast<unsigned int>(current) & 0xE0u) == 0x60u)
         {
-            return get_cbor_string(result);
+            return get_cbor_string(result, "key");
         }
 
         const char* found = nullptr;
@@ -1905,25 +1914,25 @@ class binary_reader
             case 0xD0: // int 8
             {
                 std::int8_t number{};
-                return get_number(input_format_t::msgpack, number) && sax->number_integer(number);
+                return get_number(input_format_t::msgpack, number) && sax->number_integer(conditional_static_cast<number_integer_t>(number));
             }
 
             case 0xD1: // int 16
             {
                 std::int16_t number{};
-                return get_number(input_format_t::msgpack, number) && sax->number_integer(number);
+                return get_number(input_format_t::msgpack, number) && sax->number_integer(conditional_static_cast<number_integer_t>(number));
             }
 
             case 0xD2: // int 32
             {
                 std::int32_t number{};
-                return get_number(input_format_t::msgpack, number) && sax->number_integer(number);
+                return get_number(input_format_t::msgpack, number) && sax->number_integer(conditional_static_cast<number_integer_t>(number));
             }
 
             case 0xD3: // int 64
             {
                 std::int64_t number{};
-                return get_number(input_format_t::msgpack, number) && sax->number_integer(number);
+                return get_number(input_format_t::msgpack, number) && sax->number_integer(conditional_static_cast<number_integer_t>(number));
             }
 
             case 0xDC: // array 16
@@ -2004,7 +2013,7 @@ class binary_reader
 
     @return whether string creation completed
     */
-    bool get_msgpack_string(string_t& result)
+    bool get_msgpack_string(string_t& result, const char* context = "string")
     {
         if (JSON_HEDLEY_UNLIKELY(!unexpect_eof(input_format_t::msgpack, "string")))
         {
@@ -2047,25 +2056,25 @@ class binary_reader
             case 0xBE:
             case 0xBF:
             {
-                return get_string(input_format_t::msgpack, static_cast<unsigned int>(current) & 0x1Fu, result);
+                return get_string(input_format_t::msgpack, static_cast<unsigned int>(current) & 0x1Fu, result) && check_string_utf8(result, context);
             }
 
             case 0xD9: // str 8
             {
                 std::uint8_t len{};
-                return get_number(input_format_t::msgpack, len) && get_string(input_format_t::msgpack, len, result);
+                return get_number(input_format_t::msgpack, len) && get_string(input_format_t::msgpack, len, result) && check_string_utf8(result, context);
             }
 
             case 0xDA: // str 16
             {
                 std::uint16_t len{};
-                return get_number(input_format_t::msgpack, len) && get_string(input_format_t::msgpack, len, result);
+                return get_number(input_format_t::msgpack, len) && get_string(input_format_t::msgpack, len, result) && check_string_utf8(result, context);
             }
 
             case 0xDB: // str 32
             {
                 std::uint32_t len{};
-                return get_number(input_format_t::msgpack, len) && get_string(input_format_t::msgpack, len, result);
+                return get_number(input_format_t::msgpack, len) && get_string(input_format_t::msgpack, len, result) && check_string_utf8(result, context);
             }
 
             default:
@@ -2143,7 +2152,7 @@ class binary_reader
                 // byte 0xC1 are left to get_msgpack_string
                 if (current == char_traits<char_type>::eof())
                 {
-                    return get_msgpack_string(result);
+                    return get_msgpack_string(result, "key");
                 }
                 if (current <= 0x7F || current >= 0xE0)
                 {
@@ -2159,7 +2168,7 @@ class binary_reader
                 }
                 else
                 {
-                    return get_msgpack_string(result);
+                    return get_msgpack_string(result, "key");
                 }
                 break;
         }
@@ -2405,7 +2414,7 @@ class binary_reader
                         if (top.is_object)
                         {
                             key.clear();
-                            if (JSON_HEDLEY_UNLIKELY(!get_ubjson_string(key) || !sax->key(key)))
+                            if (JSON_HEDLEY_UNLIKELY(!get_ubjson_string(key, true, "key") || !sax->key(key)))
                             {
                                 return false;
                             }
@@ -2427,7 +2436,7 @@ class binary_reader
                     if (top.is_object)
                     {
                         key.clear();
-                        if (JSON_HEDLEY_UNLIKELY(!get_ubjson_string(key, false) || !sax->key(key)))
+                        if (JSON_HEDLEY_UNLIKELY(!get_ubjson_string(key, false, "key") || !sax->key(key)))
                         {
                             return false;
                         }
@@ -2495,7 +2504,7 @@ class binary_reader
 
     @return whether string creation completed
     */
-    bool get_ubjson_string(string_t& result, const bool get_char = true)
+    bool get_ubjson_string(string_t& result, const bool get_char = true, const char* context = "string")
     {
         if (get_char)
         {
@@ -2516,31 +2525,31 @@ class binary_reader
             case 'U':
             {
                 std::uint8_t len{};
-                return get_number(input_format, len) && get_string(input_format, len, result);
+                return get_number(input_format, len) && get_string(input_format, len, result) && check_string_utf8(result, context);
             }
 
             case 'i':
             {
                 std::int8_t len{};
-                return get_number(input_format, len) && check_ubjson_string_length(len) && get_string(input_format, len, result);
+                return get_number(input_format, len) && check_ubjson_string_length(len) && get_string(input_format, len, result) && check_string_utf8(result, context);
             }
 
             case 'I':
             {
                 std::int16_t len{};
-                return get_number(input_format, len) && check_ubjson_string_length(len) && get_string(input_format, len, result);
+                return get_number(input_format, len) && check_ubjson_string_length(len) && get_string(input_format, len, result) && check_string_utf8(result, context);
             }
 
             case 'l':
             {
                 std::int32_t len{};
-                return get_number(input_format, len) && check_ubjson_string_length(len) && get_string(input_format, len, result);
+                return get_number(input_format, len) && check_ubjson_string_length(len) && get_string(input_format, len, result) && check_string_utf8(result, context);
             }
 
             case 'L':
             {
                 std::int64_t len{};
-                return get_number(input_format, len) && check_ubjson_string_length(len) && get_string(input_format, len, result);
+                return get_number(input_format, len) && check_ubjson_string_length(len) && get_string(input_format, len, result) && check_string_utf8(result, context);
             }
 
             case 'u':
@@ -2550,7 +2559,7 @@ class binary_reader
                     break;
                 }
                 std::uint16_t len{};
-                return get_number(input_format, len) && get_string(input_format, len, result);
+                return get_number(input_format, len) && get_string(input_format, len, result) && check_string_utf8(result, context);
             }
 
             case 'm':
@@ -2560,7 +2569,7 @@ class binary_reader
                     break;
                 }
                 std::uint32_t len{};
-                return get_number(input_format, len) && get_string(input_format, len, result);
+                return get_number(input_format, len) && get_string(input_format, len, result) && check_string_utf8(result, context);
             }
 
             case 'M':
@@ -2570,7 +2579,7 @@ class binary_reader
                     break;
                 }
                 std::uint64_t len{};
-                return get_number(input_format, len) && get_string(input_format, len, result);
+                return get_number(input_format, len) && get_string(input_format, len, result) && check_string_utf8(result, context);
             }
 
             default:
@@ -2980,25 +2989,25 @@ class binary_reader
             case 'i':
             {
                 std::int8_t number{};
-                return get_number(input_format, number) && sax->number_integer(number);
+                return get_number(input_format, number) && sax->number_integer(conditional_static_cast<number_integer_t>(number));
             }
 
             case 'I':
             {
                 std::int16_t number{};
-                return get_number(input_format, number) && sax->number_integer(number);
+                return get_number(input_format, number) && sax->number_integer(conditional_static_cast<number_integer_t>(number));
             }
 
             case 'l':
             {
                 std::int32_t number{};
-                return get_number(input_format, number) && sax->number_integer(number);
+                return get_number(input_format, number) && sax->number_integer(conditional_static_cast<number_integer_t>(number));
             }
 
             case 'L':
             {
                 std::int64_t number{};
-                return get_number(input_format, number) && sax->number_integer(number);
+                return get_number(input_format, number) && sax->number_integer(conditional_static_cast<number_integer_t>(number));
             }
 
             case 'u':
@@ -3558,7 +3567,7 @@ class binary_reader
         // integer -1..-10
         if (byte <= 0xC1)
         {
-            return sax->number_integer(-1 - static_cast<number_integer_t>(byte - 0xB8));
+            return sax->number_integer(conditional_static_cast<number_integer_t>(-1 - static_cast<number_integer_t>(byte - 0xB8)));
         }
 
         // 0xC2..0xF7: a UTF-8 lead byte begins a string if a continuation
@@ -3688,6 +3697,11 @@ class binary_reader
         if (0xC2 <= byte && byte <= 0xF7)
         {
             const auto second = get_bon8();
+            if (second == char_traits<char_type>::eof())
+            {
+                // the input ends inside a character or an integer
+                return unexpect_eof(input_format_t::bon8, "key");
+            }
             unget_bon8(second);
             if (is_bon8_continuation(second))
             {
@@ -3786,6 +3800,12 @@ class binary_reader
             // a lead byte ends the string if no continuation byte follows: it
             // is then the first byte of an integer
             const auto second = get_bon8();
+            if (second == char_traits<char_type>::eof())
+            {
+                // the input ends inside a character or an integer: either
+                // way, the message is incomplete
+                return unexpect_eof(input_format_t::bon8, "string");
+            }
             if (!is_bon8_continuation(second))
             {
                 unget_bon8(second);
@@ -3866,6 +3886,8 @@ class binary_reader
     template<class T>
     bool get_to(T& dest, const input_format_t format, const char* context)
     {
+        // false positive: new_chars_read is read on the next lines
+        // @infer-ignore DEAD_STORE
         auto new_chars_read = ia.get_elements(&dest);
         chars_read += new_chars_read;
         if (JSON_HEDLEY_UNLIKELY(new_chars_read < sizeof(T)))
@@ -4031,27 +4053,50 @@ class binary_reader
                     const NumberType len,
                     string_t& result)
     {
-        // get_bytes() appends to result, and CBOR indefinite-length strings
-        // collect all their chunks in the same result; validating only the
-        // newly read bytes keeps the check linear in the input size
-        const std::size_t old_size = result.size();
-        if (JSON_HEDLEY_UNLIKELY(!get_bytes(format, len, "string", result)))
+        // Strings are taken as is by default: none of CBOR (RFC 8949 §3.1
+        // leaves the choice to the decoder), MessagePack (whose spec
+        // explicitly allows a str object to contain an invalid byte
+        // sequence), UBJSON, BJData, or BSON requires a decoder to reject
+        // ill-formed UTF-8. Checking (and, with @ref error_handler_t::strict,
+        // rejecting, or with `replace`/`ignore`, sanitizing) is opt-in via
+        // @ref error_handler, applied once the whole string (all chunks of
+        // an indefinite-length CBOR string included) has been assembled, by
+        // @ref check_string_utf8 at the call site.
+        return get_bytes(format, len, "string", result);
+    }
+
+    /*!
+    @brief validate a decoded text string (value or object key) against @ref error_handler
+
+    None of the binary formats requires a decoder to reject ill-formed UTF-8
+    in a text string (see @ref get_string), so by default
+    (@ref error_handler_t::keep) this does nothing. A stricter
+    @ref error_handler opts into the same well-formedness check @ref
+    serializer::dump_escaped_impl applies when dumping a string:
+    @ref error_handler_t::strict rejects ill-formed input with
+    parse_error.113 (honoring `allow_exceptions` via @a sax), while
+    @ref error_handler_t::replace / @ref error_handler_t::ignore sanitize
+    @a result in place, using the exact same rules.
+
+    @param[in,out] result  the already assembled string to check
+    @param[in] context     further context information (for diagnostics)
+    @return whether @a result is acceptable (always true for `keep`)
+    */
+    bool check_string_utf8(string_t& result, const char* context)
+    {
+        if (error_handler == error_handler_t::keep || is_valid_utf8(result))
         {
-            return false;
+            return true;
         }
 
-        // RFC 8949 (CBOR) §3.1 and the MessagePack/BSON/UBJSON specifications
-        // all require text strings to be valid UTF-8; reject anything else
-        // right here so malformed input is caught at decode time instead of
-        // only surfacing later as a type_error.316 when the value is dumped
-        // (which would defeat allow_exceptions=false / strict discarding).
-        if (JSON_HEDLEY_UNLIKELY(!is_valid_utf8(result, old_size)))
+        if (error_handler == error_handler_t::strict)
         {
-            return sax->parse_error(chars_read, get_token_string(),
-                                    parse_error::create(113, chars_read,
-                                            exception_message(format, "invalid string: ill-formed UTF-8 byte", "string"), nullptr));
+            auto last_token = get_token_string();
+            return sax->parse_error(chars_read, last_token, parse_error::create(113, chars_read,
+                                    exception_message(input_format, "invalid string: ill-formed UTF-8 byte", context), nullptr));
         }
 
+        result = sanitize_utf8(result, error_handler);
         return true;
     }
 
@@ -4117,6 +4162,8 @@ class binary_reader
             // resize() is required to make size() exactly old_size + wanted;
             // that is the room get_elements() is allowed to write into
             JSON_ASSERT(result.size() == old_size + wanted);
+            // false positive: bytes_read is read on the next lines
+            // @infer-ignore DEAD_STORE
             const std::size_t bytes_read = ia.get_elements(&result[old_size], wanted);
             chars_read += bytes_read;
             if (JSON_HEDLEY_UNLIKELY(bytes_read < wanted))
@@ -4225,6 +4272,9 @@ class binary_reader
 
     /// input format
     const input_format_t input_format = input_format_t::json;
+
+    /// how to treat text strings/object keys that are not well-formed UTF-8
+    const error_handler_t error_handler = error_handler_t::keep;
 
     /// the SAX parser
     json_sax_t* sax = nullptr;
