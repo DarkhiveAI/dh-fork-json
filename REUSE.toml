@@ -34,12 +34,6 @@ SPDX-FileCopyrightText = "2015-2017 Niels Lohmann"
 SPDX-License-Identifier = "MIT"
 
 [[annotations]]
-path = "tests/thirdparty/Fuzzer/**"
-precedence = "aggregate"
-SPDX-FileCopyrightText = "2003-2022 LLVM Project."
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
 path = "tests/thirdparty/imapdl/**"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2017 Georg Sauthoff <mail@gms.tf>"

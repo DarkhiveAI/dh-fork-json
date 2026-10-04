@@ -2,19 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "MyPackage",
+    name: "json_example",
     dependencies: [
-        .package(url: "https://github.com/nlohmann/json.git", from: "3.12.0")
+        .package(url: "https://github.com/nlohmann/json", from: "3.12.0")
     ],
     targets: [
-        // the C++ target that uses nlohmann/json
-        .target(
-            name: "MyLibrary",
+        .executableTarget(
+            name: "json_example",
             dependencies: [
                 .product(name: "json", package: "json")
-            ],
-            // works around missing public headers in MyLibrary; not related to nlohmann/json
-            publicHeadersPath: "."
+            ]
         )
     ]
 )

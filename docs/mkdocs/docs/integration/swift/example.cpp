@@ -1,8 +1,10 @@
-// MyLibrary must contain at least one .cpp file, or SwiftPM/Xcode will
-// not build a usable "json" library to link against (see nlohmann/json#4650)
 #include <json.hpp>
+#include <iostream>
+#include <iomanip>
 
-nlohmann::json example()
+using json = nlohmann::json;
+
+int main()
 {
-    return nlohmann::json::meta();
+    std::cout << std::setw(4) << json::meta() << std::endl;
 }
