@@ -8,6 +8,14 @@
 
 #include "doctest_compatibility.h"
 
+// capture whether JSON_DELETE_DEPRECATED_FUNCTIONS was enabled on the command
+// line *before* including json.hpp, since the library #undefs it once the header
+// has been fully processed (see include/nlohmann/detail/macro_unscope.hpp); the
+// tests of deprecated functions are skipped if these functions are deleted
+#if defined(JSON_DELETE_DEPRECATED_FUNCTIONS) && (JSON_DELETE_DEPRECATED_FUNCTIONS == 1)
+    #define JSON_TEST_DEPRECATED_FUNCTIONS_DELETED
+#endif
+
 #include <nlohmann/json.hpp>
 using nlohmann::json;
 
@@ -2215,8 +2223,10 @@ TEST_CASE("CBOR input that cannot be read is discarded by every overload")
     CHECK_THROWS_AS(_ = json::from_cbor(input.begin(), input.end()), json::parse_error&);
     CHECK(json::from_cbor(input, true, false).is_discarded());
     CHECK(json::from_cbor(input.begin(), input.end(), true, false).is_discarded());
+#ifndef JSON_TEST_DEPRECATED_FUNCTIONS_DELETED
     CHECK(json::from_cbor(input.data(), input.size(), true, false).is_discarded());
     CHECK(json::from_cbor({input.data(), input.size()}, true, false).is_discarded());
+#endif
 
     // a string that ends early, read through iterators that are not
     // contiguous and have to be copied from one element at a time
@@ -2613,12 +2623,14 @@ TEST_CASE("CBOR roundtrips" * doctest::skip())
                 CHECK(j1 == j2);
             }
 
+#ifndef JSON_TEST_DEPRECATED_FUNCTIONS_DELETED
             {
                 INFO_WITH_TEMP(filename + ": uint8_t* and size");
                 json j2;
                 CHECK_NOTHROW(j2 = json::from_cbor({packed.data(), packed.size()}));
                 CHECK(j1 == j2);
             }
+#endif
 
             {
                 INFO_WITH_TEMP(filename + ": output to output adapters");
@@ -3185,7 +3197,8 @@ TEST_CASE("Tagged values")
         // CBOR encodes negative integers as: result = -1 - n
         // For type 0x3B, n is an 8-byte uint64_t. Valid range for n with
         // the default int64_t is [0, INT64_MAX], producing results in [INT64_MIN, -1].
-        // When n > INT64_MAX, the result exceeds int64_t range and is rejected.
+        // When n > INT64_MAX, the result exceeds int64_t range and is stored
+        // as a floating-point number, as the lexer does for JSON text.
 
         SECTION("n = 0 is valid (result = -1)")
         {
@@ -3206,33 +3219,34 @@ TEST_CASE("Tagged values")
             CHECK(result.get<int64_t>() == (std::numeric_limits<int64_t>::min)());
         }
 
-        SECTION("n = INT64_MAX + 1 is rejected (overflow)")
+        SECTION("n = INT64_MAX + 1 is stored as float")
         {
             // n = INT64_MAX + 1 (0x8000000000000000)
-            // result = -1 - n = -9223372036854775809, which exceeds int64_t range
+            // result = -1 - n = -9223372036854775809, which exceeds int64_t range;
+            // the nearest double is -9223372036854775808.0
             const std::vector<uint8_t> input = {0x3B, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-            json _;
-            CHECK_THROWS_WITH_AS(_ = json::from_cbor(input),
-                                 "[json.exception.parse_error.112] parse error at byte 9: syntax error while parsing CBOR value: negative integer overflow",
-                                 json::parse_error);
+            const auto result = json::from_cbor(input);
+            CHECK(result.is_number_float());
+            CHECK(result.get<double>() == -9223372036854775808.0);
+            CHECK(result == json::parse("-9223372036854775809"));
         }
 
-        SECTION("n = UINT64_MAX is rejected (overflow)")
+        SECTION("n = UINT64_MAX is stored as float")
         {
             // n = UINT64_MAX (0xFFFFFFFFFFFFFFFF)
             // result = -1 - n = -18446744073709551616, which exceeds int64_t range
             const std::vector<uint8_t> input = {0x3B, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-            json _;
-            CHECK_THROWS_WITH_AS(_ = json::from_cbor(input),
-                                 "[json.exception.parse_error.112] parse error at byte 9: syntax error while parsing CBOR value: negative integer overflow",
-                                 json::parse_error);
+            const auto result = json::from_cbor(input);
+            CHECK(result.is_number_float());
+            CHECK(result.get<double>() == -18446744073709551616.0);
+            CHECK(result == json::parse("-18446744073709551616"));
         }
 
-        SECTION("overflow with allow_exceptions=false returns discarded")
+        SECTION("overflow with allow_exceptions=false is not an error")
         {
             const std::vector<uint8_t> input = {0x3B, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
             const auto result = json::from_cbor(input, true, false);
-            CHECK(result.is_discarded());
+            CHECK(result.is_number_float());
         }
     }
 
