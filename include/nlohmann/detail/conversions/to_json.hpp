@@ -23,6 +23,7 @@
 #include <valarray> // valarray
 #include <vector> // vector
 
+#include <nlohmann/detail/exceptions.hpp>
 #include <nlohmann/detail/iterators/iteration_proxy.hpp>
 #include <nlohmann/detail/meta/cpp_future.hpp>
 #include <nlohmann/detail/meta/std_fs.hpp>
@@ -286,9 +287,20 @@ struct external_constructor<value_t::object>
 /////////////
 
 #ifdef JSON_HAS_CPP_17
+// whether storing the value of a std::optional<T> cannot throw; MSVC 2017
+// evaluates std::is_nothrow_assignable as true even if T's to_json throws, so
+// the exception would call std::terminate (#5642)
+#if defined(_MSC_VER) && !defined(__clang__) && _MSC_VER < 1920
+    template<typename BasicJsonType, typename T>
+    using is_nothrow_optional_to_json = std::false_type;
+#else
+    template<typename BasicJsonType, typename T>
+    using is_nothrow_optional_to_json = std::is_nothrow_assignable<BasicJsonType&, const T&>;
+#endif
+
 template<typename BasicJsonType, typename T,
          enable_if_t<std::is_constructible<BasicJsonType, T>::value, int> = 0>
-void to_json(BasicJsonType& j, const std::optional<T>& opt) noexcept(std::is_nothrow_assignable<BasicJsonType&, const T&>::value)
+void to_json(BasicJsonType& j, const std::optional<T>& opt) noexcept(is_nothrow_optional_to_json<BasicJsonType, T>::value)
 {
     if (opt.has_value())
     {
@@ -364,7 +376,7 @@ inline void to_json(BasicJsonType& j, EnumType e) noexcept
 {
     using underlying_type = typename std::underlying_type<EnumType>::type;
     static constexpr value_t integral_value_t = std::is_unsigned<underlying_type>::value ? value_t::number_unsigned : value_t::number_integer;
-    external_constructor<integral_value_t>::construct(j, static_cast<underlying_type>(e));
+    external_constructor<integral_value_t>::construct(j, bool_aware_static_cast<underlying_type>(e));
 }
 #endif  // JSON_DISABLE_ENUM_SERIALIZATION
 
@@ -384,6 +396,9 @@ template < typename BasicJsonType, typename CompatibleArrayType,
                          !is_basic_json<CompatibleArrayType>::value
 #if JSON_HAS_RANGE_VIEW_CONVERSION
     && !is_compatible_range_view<CompatibleArrayType>::value
+#endif
+#if JSON_USE_OBJECTS_FOR_ENUM_KEYED_MAPS
+    && !is_enum_keyed_map<CompatibleArrayType>::value
 #endif
                          ,
                          int > = 0 >
@@ -437,6 +452,33 @@ inline void to_json(BasicJsonType& j, const CompatibleObjectType& obj)
 {
     external_constructor<value_t::object>::construct(j, obj);
 }
+
+#if JSON_USE_OBJECTS_FOR_ENUM_KEYED_MAPS
+// store a map with enum keys as an object, using the enum's own to_json for the
+// keys (e.g., from NLOHMANN_JSON_SERIALIZE_ENUM); without the macro, such maps
+// are stored as arrays of [key, value] pairs
+template < typename BasicJsonType, typename EnumKeyedMap,
+           enable_if_t < is_enum_keyed_map<EnumKeyedMap>::value&& !is_basic_json<EnumKeyedMap>::value, int > = 0 >
+inline void to_json(BasicJsonType& j, const EnumKeyedMap& map)
+{
+    typename BasicJsonType::object_t obj;
+    for (const auto& p : map)
+    {
+        BasicJsonType key = p.first;
+        if (JSON_HEDLEY_UNLIKELY(!key.is_string()))
+        {
+            JSON_THROW(type_error::create(302, concat("type must be string, but is ", key.type_name()), &key));
+        }
+
+        auto& key_string = *key.template get_ptr<typename BasicJsonType::string_t*>();
+        if (JSON_HEDLEY_UNLIKELY(!obj.emplace(key_string, BasicJsonType(p.second)).second))
+        {
+            JSON_THROW(type_error::create(318, concat("duplicate object key '", key_string, "'"), &key));
+        }
+    }
+    external_constructor<value_t::object>::construct(j, std::move(obj));
+}
+#endif
 
 template<typename BasicJsonType>
 inline void to_json(BasicJsonType& j, typename BasicJsonType::object_t&& obj)
