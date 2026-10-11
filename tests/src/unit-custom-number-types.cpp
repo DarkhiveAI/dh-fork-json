@@ -133,7 +133,7 @@ __extension__ typedef __int128 int128; // NOLINT(modernize-use-using)
 __extension__ typedef unsigned __int128 uint128; // NOLINT(modernize-use-using)
 
 static_assert(std::numeric_limits<int128>::digits == 127 && std::numeric_limits<uint128>::digits == 128 &&
-              std::is_integral<int128>::value && std::is_integral<uint128>::value,
+              std::is_integral<int128>::value && std::is_integral<uint128>::value, // NOLINT(misc-redundant-expression)
               "__int128 is not fully supported by the standard library");
 
 using wide_json = nlohmann::basic_json<std::map, std::vector, std::string, bool, int128, uint128, double>;
@@ -209,9 +209,16 @@ TEST_CASE("custom number types: integers beyond 64 bits")
 
     SECTION("BSON")
     {
+        // wrap() stores the value at /v, which JSON_DIAGNOSTICS adds to the message
+#if JSON_DIAGNOSTICS
+        CHECK_THROWS_WITH_AS(_ = wide_json::to_bson(wrap(int_big)), "[json.exception.out_of_range.407] (/v) integer number 1267650600228229401496703205376 cannot be represented by BSON as it does not fit int64", out_of_range&);
+        CHECK_THROWS_WITH_AS(_ = wide_json::to_bson(wrap(int_big_negative)), "[json.exception.out_of_range.407] (/v) integer number -1267650600228229401496703205376 cannot be represented by BSON as it does not fit int64", out_of_range&);
+        CHECK_THROWS_WITH_AS(_ = wide_json::to_bson(wrap(uint_big)), "[json.exception.out_of_range.407] (/v) integer number 1267650600228229401496703205376 cannot be represented by BSON as it does not fit uint64", out_of_range&);
+#else
         CHECK_THROWS_WITH_AS(_ = wide_json::to_bson(wrap(int_big)), "[json.exception.out_of_range.407] integer number 1267650600228229401496703205376 cannot be represented by BSON as it does not fit int64", out_of_range&);
         CHECK_THROWS_WITH_AS(_ = wide_json::to_bson(wrap(int_big_negative)), "[json.exception.out_of_range.407] integer number -1267650600228229401496703205376 cannot be represented by BSON as it does not fit int64", out_of_range&);
         CHECK_THROWS_WITH_AS(_ = wide_json::to_bson(wrap(uint_big)), "[json.exception.out_of_range.407] integer number 1267650600228229401496703205376 cannot be represented by BSON as it does not fit uint64", out_of_range&);
+#endif
         CHECK_THROWS_AS(_ = wide_json::to_bson(wrap(make_int(max_int64 + 1))), out_of_range&);
         CHECK_THROWS_AS(_ = wide_json::to_bson(wrap(make_int(min_int64 - 1))), out_of_range&);
 
