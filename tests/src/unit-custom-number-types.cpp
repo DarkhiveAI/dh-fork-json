@@ -183,6 +183,11 @@ TEST_CASE("custom number types: integers beyond 64 bits")
         CHECK_THROWS_WITH_AS(_ = wide_json::to_cbor(int_big), "[json.exception.out_of_range.407] integer number 1267650600228229401496703205376 cannot be represented by CBOR as it does not fit [-2^64, 2^64-1]", out_of_range&);
         CHECK_THROWS_WITH_AS(_ = wide_json::to_cbor(int_big_negative), "[json.exception.out_of_range.407] integer number -1267650600228229401496703205376 cannot be represented by CBOR as it does not fit [-2^64, 2^64-1]", out_of_range&);
         CHECK_THROWS_WITH_AS(_ = wide_json::to_cbor(uint_big), "[json.exception.out_of_range.407] integer number 1267650600228229401496703205376 cannot be represented by CBOR as it does not fit uint64", out_of_range&);
+        // the extremes of the 128-bit types, whose digits are produced without
+        // negating the minimum as a whole
+        CHECK_THROWS_WITH_AS(_ = wide_json::to_cbor(make_int((std::numeric_limits<int128>::min)())), "[json.exception.out_of_range.407] integer number -170141183460469231731687303715884105728 cannot be represented by CBOR as it does not fit [-2^64, 2^64-1]", out_of_range&);
+        CHECK_THROWS_WITH_AS(_ = wide_json::to_cbor(make_int((std::numeric_limits<int128>::max)())), "[json.exception.out_of_range.407] integer number 170141183460469231731687303715884105727 cannot be represented by CBOR as it does not fit [-2^64, 2^64-1]", out_of_range&);
+        CHECK_THROWS_WITH_AS(_ = wide_json::to_cbor(make_uint((std::numeric_limits<uint128>::max)())), "[json.exception.out_of_range.407] integer number 340282366920938463463374607431768211455 cannot be represented by CBOR as it does not fit uint64", out_of_range&);
         CHECK_THROWS_AS(_ = wide_json::to_cbor(make_int(two_64)), out_of_range&);
         CHECK_THROWS_AS(_ = wide_json::to_cbor(make_int(-two_64 - 1)), out_of_range&);
         CHECK_THROWS_AS(_ = wide_json::to_cbor(make_uint(static_cast<uint128>(max_uint64) + 1)), out_of_range&);

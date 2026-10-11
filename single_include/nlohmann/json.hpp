@@ -22647,14 +22647,63 @@ class binary_writer
     }
 
     /*!
+    @brief the decimal digits of the non-negative integer @a n
+    */
+    template<typename NumberType>
+    static std::string integer_to_string(NumberType n, std::false_type /*is_signed*/)
+    {
+        std::string result;
+        do
+        {
+            result.push_back(static_cast<char>('0' + n % 10));
+            n = static_cast<NumberType>(n / 10);
+        }
+        while (n != 0);
+        std::reverse(result.begin(), result.end());
+        return result;
+    }
+
+    /*!
+    @brief the decimal digits of the integer @a n, with a leading '-' if it
+           is negative
+    */
+    template<typename NumberType>
+    static std::string integer_to_string(NumberType n, std::true_type /*is_signed*/)
+    {
+        // the remainder of a negative n is not positive; each digit is
+        // negated on its own, because negating the minimum of NumberType
+        // as a whole would overflow
+        const bool negative = n < 0;
+        std::string result;
+        do
+        {
+            const auto remainder = n % 10;
+            result.push_back(static_cast<char>('0' + (remainder < 0 ? -remainder : remainder)));
+            n = static_cast<NumberType>(n / 10);
+        }
+        while (n != 0);
+        if (negative)
+        {
+            result.push_back('-');
+        }
+        std::reverse(result.begin(), result.end());
+        return result;
+    }
+
+    /*!
     @brief throws because the integer @a j is too large for @a format_name
     @throw out_of_range.407 always
     */
     JSON_HEDLEY_NO_RETURN static void throw_integer_out_of_range(const BasicJsonType& j, const char* format_name, const char* range)
     {
-        // dump() rather than std::to_string(), which has no overload for
-        // integer types wider than 64 bits
-        const auto number = j.dump();
+        // neither std::to_string(), which has no overload for integer types
+        // wider than 64 bits, nor dump(), which would also instantiate the
+        // serializer for objects and fail for key types it cannot write
+        using integer_limits = std::numeric_limits<typename BasicJsonType::number_integer_t>;
+        using unsigned_limits = std::numeric_limits<typename BasicJsonType::number_unsigned_t>;
+        const std::string number = j.is_number_unsigned()
+                                   ? integer_to_string(j.m_data.m_value.number_unsigned, std::integral_constant<bool, unsigned_limits::is_signed>())
+                                   : integer_to_string(j.m_data.m_value.number_integer, std::integral_constant<bool, integer_limits::is_signed>());
         static_cast<void>(number); // unused when JSON_NOEXCEPTION is defined
         static_cast<void>(format_name);
         static_cast<void>(range);
