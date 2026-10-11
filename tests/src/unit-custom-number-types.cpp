@@ -34,12 +34,17 @@ class class_int
     // trivial, like the 128-bit integer classes: the value is stored in a union
     class_int() = default;
 
-    // implicit from built-in integers and explicit from floats, like absl::int128
-    template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-    class_int(T v) : value(static_cast<std::int64_t>(v)) {} // NOLINT(google-explicit-constructor,hicpp-explicit-conversions)
-
-    template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    explicit class_int(T v) : value(static_cast<std::int64_t>(v)) {}
+    // implicit from built-in integers and explicit from floats, like absl::int128;
+    // non-template overloads (as absl::int128 has) because clang 3.4 and 3.5
+    // reject basic_json's defaulted data() for a number type with template
+    // constructors
+    class_int(int v) : value(v) {} // NOLINT(google-explicit-constructor,hicpp-explicit-conversions)
+    class_int(unsigned v) : value(v) {} // NOLINT(google-explicit-constructor,hicpp-explicit-conversions)
+    class_int(long v) : value(v) {} // NOLINT(google-explicit-constructor,hicpp-explicit-conversions)
+    class_int(unsigned long v) : value(static_cast<std::int64_t>(v)) {} // NOLINT(google-explicit-constructor,hicpp-explicit-conversions)
+    class_int(long long v) : value(v) {} // NOLINT(google-explicit-constructor,hicpp-explicit-conversions)
+    class_int(unsigned long long v) : value(static_cast<std::int64_t>(v)) {} // NOLINT(google-explicit-constructor,hicpp-explicit-conversions)
+    explicit class_int(double v) : value(static_cast<std::int64_t>(v)) {}
 
     template<typename T, typename std::enable_if<std::is_arithmetic<T>::value, int>::type = 0>
     explicit operator T() const

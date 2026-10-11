@@ -920,7 +920,7 @@ class binary_writer
         std::string result;
         do
         {
-            result.push_back(static_cast<char>('0' + n % 10));
+            result.push_back(static_cast<char>('0' + (n % 10)));
             n = static_cast<NumberType>(n / 10);
         }
         while (n != 0);
