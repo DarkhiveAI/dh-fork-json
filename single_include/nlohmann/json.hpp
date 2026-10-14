@@ -23929,15 +23929,17 @@ class binary_writer
     */
     static unsigned integer_size_class(const std::uint64_t x) noexcept
     {
-        static constexpr std::uint8_t size_class_by_leading_zeros[64] =
+        static constexpr std::array<std::uint8_t, 64> size_class_by_leading_zeros =
         {
-            4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-            3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-            2, 2, 2, 2, 2, 2, 2, 2,
-            1, 1, 1, 1, 1, 1, 1, 1
+            {
+                4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+                3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+                2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1
+            }
         };
         // x | 1 keeps count_leading_zeros() away from 0
-        return size_class_by_leading_zeros[count_leading_zeros(x | 1u)];
+        return size_class_by_leading_zeros[static_cast<std::size_t>(count_leading_zeros(x | 1u))];
     }
 
     /*!
