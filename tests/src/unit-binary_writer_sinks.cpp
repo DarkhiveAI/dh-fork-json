@@ -240,13 +240,79 @@ void reference_cbor_integer(std::vector<std::uint8_t>& out, const json& j)
     }
 }
 
-// integers at every boundary of the CBOR head sizes, signed and unsigned
+// the MessagePack encoding of an integer value, encoded independently of
+// binary_writer
+void reference_msgpack_integer(std::vector<std::uint8_t>& out, const json& j)
+{
+    const auto put = [&out](const std::uint8_t marker, const std::uint64_t bits, const int length)
+    {
+        out.push_back(marker);
+        for (int i = length - 1; i >= 0; --i)
+        {
+            out.push_back(static_cast<std::uint8_t>(bits >> (8 * i)));
+        }
+    };
+
+    if (j.is_number_unsigned() || j.get<std::int64_t>() >= 0)
+    {
+        const auto u = j.get<std::uint64_t>();
+        if (u < 128)
+        {
+            out.push_back(static_cast<std::uint8_t>(u));
+        }
+        else if (u <= 0xFF)
+        {
+            put(0xCC, u, 1);
+        }
+        else if (u <= 0xFFFF)
+        {
+            put(0xCD, u, 2);
+        }
+        else if (u <= 0xFFFFFFFF)
+        {
+            put(0xCE, u, 4);
+        }
+        else
+        {
+            put(0xCF, u, 8);
+        }
+        return;
+    }
+
+    const auto n = j.get<std::int64_t>();
+    const auto bits = static_cast<std::uint64_t>(n);
+    if (n >= -32)
+    {
+        out.push_back(static_cast<std::uint8_t>(bits));
+    }
+    else if (n >= -128)
+    {
+        put(0xD0, bits, 1);
+    }
+    else if (n >= -32768)
+    {
+        put(0xD1, bits, 2);
+    }
+    else if (n >= -2147483648LL)
+    {
+        put(0xD2, bits, 4);
+    }
+    else
+    {
+        put(0xD3, bits, 8);
+    }
+}
+
+// integers at every boundary of the CBOR and MessagePack sizes, signed and
+// unsigned
 std::vector<json> boundary_integers()
 {
     std::vector<json> result;
     const std::uint64_t boundaries[] =
     {
-        0, 1, 22, 23, 24, 25, 254, 255, 256, 257, 65534, 65535, 65536, 65537,
+        0, 1, 22, 23, 24, 25, 31, 32, 33, 126, 127, 128, 129, 254, 255, 256, 257,
+        32766, 32767, 32768, 32769, 65534, 65535, 65536, 65537,
+        2147483646ULL, 2147483647ULL, 2147483648ULL, 2147483649ULL,
         4294967294ULL, 4294967295ULL, 4294967296ULL, 4294967297ULL,
         9223372036854775806ULL, 9223372036854775807ULL, 9223372036854775808ULL,
         18446744073709551614ULL, 18446744073709551615ULL
@@ -268,10 +334,10 @@ std::vector<json> boundary_integers()
 } // namespace
 
 // Arrays of integers are written in runs straight into space reserved from the
-// sink, with a branch-free head; check them against an independent encoder for
+// sink, with branch-free encodings; check them against independent encoders for
 // runs shorter and longer than one reservation, broken up by other values, and
 // through each sink.
-TEST_CASE("CBOR integer arrays")
+TEST_CASE("CBOR and MessagePack integer arrays")
 {
     const std::vector<json> integers = boundary_integers();
 
@@ -289,52 +355,81 @@ TEST_CASE("CBOR integer arrays")
             CAPTURE(break_every)
 
             json array = json::array();
-            std::vector<std::uint8_t> expected;
+            std::vector<std::uint8_t> expected_cbor;
+            std::vector<std::uint8_t> expected_msgpack;
             for (std::size_t i = 0; i < length; ++i)
             {
                 if (break_every != 0 && i % (break_every + 1) == break_every)
                 {
                     array.push_back("x");
-                    expected.push_back(0x61);
-                    expected.push_back('x');
+                    expected_cbor.push_back(0x61);
+                    expected_cbor.push_back('x');
+                    expected_msgpack.push_back(0xA1);
+                    expected_msgpack.push_back('x');
                 }
                 else
                 {
                     const json& value = integers[(i * 7) % integers.size()];
                     array.push_back(value);
-                    reference_cbor_integer(expected, value);
+                    reference_cbor_integer(expected_cbor, value);
+                    reference_msgpack_integer(expected_msgpack, value);
                 }
             }
 
             std::vector<std::uint8_t> head;
             reference_cbor_head(head, 0x80, length);
-            expected.insert(expected.begin(), head.begin(), head.end());
+            expected_cbor.insert(expected_cbor.begin(), head.begin(), head.end());
 
-            CHECK(json::to_cbor(array) == expected);
+            head.clear();
+            if (length <= 15)
+            {
+                head.push_back(static_cast<std::uint8_t>(0x90 + length));
+            }
+            else
+            {
+                head = {0xDC, static_cast<std::uint8_t>(length >> 8), static_cast<std::uint8_t>(length)};
+            }
+            expected_msgpack.insert(expected_msgpack.begin(), head.begin(), head.end());
+
+            CHECK(json::to_cbor(array) == expected_cbor);
+            CHECK(json::to_msgpack(array) == expected_msgpack);
 
             std::vector<std::uint8_t> through_adapter = {0xAA};
             json::to_cbor(array, through_adapter);
-            CHECK(std::vector<std::uint8_t>(through_adapter.begin() + 1, through_adapter.end()) == expected);
+            CHECK(std::vector<std::uint8_t>(through_adapter.begin() + 1, through_adapter.end()) == expected_cbor);
+            through_adapter = {0xAA};
+            json::to_msgpack(array, through_adapter);
+            CHECK(std::vector<std::uint8_t>(through_adapter.begin() + 1, through_adapter.end()) == expected_msgpack);
 
             std::ostringstream stream;
             json::to_cbor(array, stream);
-            const std::string streamed = stream.str();
-            CHECK(std::vector<std::uint8_t>(streamed.begin(), streamed.end()) == expected);
+            std::string streamed = stream.str();
+            CHECK(std::vector<std::uint8_t>(streamed.begin(), streamed.end()) == expected_cbor);
+            stream.str("");
+            json::to_msgpack(array, stream);
+            streamed = stream.str();
+            CHECK(std::vector<std::uint8_t>(streamed.begin(), streamed.end()) == expected_msgpack);
 
-            CHECK(json::from_cbor(expected) == array);
+            CHECK(json::from_cbor(expected_cbor) == array);
+            CHECK(json::from_msgpack(expected_msgpack) == array);
 
-            // the same array as an object member, and as single values
+            // the same array as object members
             const json object = {{"a", array}, {"b", array}};
             CHECK(json::from_cbor(json::to_cbor(object)) == object);
+            CHECK(json::from_msgpack(json::to_msgpack(object)) == object);
         }
     }
 
+    // single values, outside an array
     for (const auto& value : integers)
     {
         CAPTURE(value)
         std::vector<std::uint8_t> expected;
         reference_cbor_integer(expected, value);
         CHECK(json::to_cbor(value) == expected);
+        expected.clear();
+        reference_msgpack_integer(expected, value);
+        CHECK(json::to_msgpack(value) == expected);
     }
 }
 

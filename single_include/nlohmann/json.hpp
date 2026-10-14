@@ -22435,54 +22435,12 @@ class binary_writer
             }
 
             case value_t::number_integer:
-            {
-                if (j.m_data.m_value.number_integer >= 0)
-                {
-                    // MessagePack does not differentiate between positive
-                    // signed integers and unsigned integers.
-                    write_msgpack_unsigned(static_cast<std::uint64_t>(j.m_data.m_value.number_integer));
-                }
-                else
-                {
-                    if (j.m_data.m_value.number_integer >= -32)
-                    {
-                        // negative fixnum
-                        write_number(static_cast<std::int8_t>(j.m_data.m_value.number_integer));
-                    }
-                    else if (j.m_data.m_value.number_integer >= (std::numeric_limits<std::int8_t>::min)() &&
-                             j.m_data.m_value.number_integer <= (std::numeric_limits<std::int8_t>::max)())
-                    {
-                        // int 8
-                        oa.write_character(to_char_type(0xD0));
-                        write_number(static_cast<std::int8_t>(j.m_data.m_value.number_integer));
-                    }
-                    else if (j.m_data.m_value.number_integer >= (std::numeric_limits<std::int16_t>::min)() &&
-                             j.m_data.m_value.number_integer <= (std::numeric_limits<std::int16_t>::max)())
-                    {
-                        // int 16
-                        oa.write_character(to_char_type(0xD1));
-                        write_number(static_cast<std::int16_t>(j.m_data.m_value.number_integer));
-                    }
-                    else if (j.m_data.m_value.number_integer >= (std::numeric_limits<std::int32_t>::min)() &&
-                             j.m_data.m_value.number_integer <= (std::numeric_limits<std::int32_t>::max)())
-                    {
-                        // int 32
-                        oa.write_character(to_char_type(0xD2));
-                        write_number(static_cast<std::int32_t>(j.m_data.m_value.number_integer));
-                    }
-                    else
-                    {
-                        // int 64
-                        oa.write_character(to_char_type(0xD3));
-                        write_number(static_cast<std::int64_t>(j.m_data.m_value.number_integer));
-                    }
-                }
-                break;
-            }
-
             case value_t::number_unsigned:
             {
-                write_msgpack_unsigned(static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned));
+                // one case for both, so that an array mixing negative
+                // (number_integer) and non-negative (number_unsigned) values
+                // does not mispredict the switch
+                write_msgpack_integer(j, std::integral_constant<bool, msgpack_integers_fit_64_bits()>());
                 break;
             }
 
@@ -22500,13 +22458,7 @@ class binary_writer
 
             case value_t::array:
             {
-                // step 1: write control byte and the array size
-                write_msgpack_array_prefix(j.m_data.m_value.array->size(), j);
-
-                for (const auto& el : *j.m_data.m_value.array)
-                {
-                    write_msgpack(el, depth + 1);
-                }
+                write_msgpack_array(j, depth);
                 break;
             }
 
@@ -23967,22 +23919,16 @@ class binary_writer
     }
 
     /*!
-    @brief encode the head of a CBOR integer to @a out without branching on its
-           size
-    @return the number of characters of the head; up to @ref cbor_integer_head_space
-            characters at @a out are overwritten
+    @brief size class of an unsigned integer from its bit length
 
-    Same output as @ref write_cbor_head. The lengths of strings and containers
-    are mostly predictable, so their heads keep the branches; the sizes of a
-    run of integers are not, so an integer's head is assembled without them.
+    1, 2, 3, or 4 if @a x fits 1, 2, 4, or 8 bytes. Looked up from the number
+    of leading zero bits instead of found by branches: the sizes of a stream
+    of numbers are hard to predict, and a mispredicted branch costs more than
+    writing the number. (A table, as comparisons are vectorized by clang into
+    slower code.)
     */
-    std::size_t encode_cbor_integer_head(CharType* out, const std::uint8_t major_type, const std::uint64_t argument) const noexcept
+    static unsigned integer_size_class(const std::uint64_t x) noexcept
     {
-        // The size class - 0 if the argument fits the first byte, else 1 to 4
-        // for 1, 2, 4, or 8 following bytes - is looked up from the number of
-        // leading zero bits instead of found by branches: the sizes of a stream
-        // of numbers are hard to predict, and a mispredicted branch costs more
-        // than writing the head.
         static constexpr std::uint8_t size_class_by_leading_zeros[64] =
         {
             4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
@@ -23990,25 +23936,79 @@ class binary_writer
             2, 2, 2, 2, 2, 2, 2, 2,
             1, 1, 1, 1, 1, 1, 1, 1
         };
-        // an argument of at most 23 is in the table's class 1 (one byte) and is
-        // moved to class 0 by subtracting 1; argument | 1 keeps
-        // count_leading_zeros() away from 0
-        const auto is_immediate = static_cast<unsigned>(argument <= 0x17u);
-        const unsigned size_class = size_class_by_leading_zeros[count_leading_zeros(argument | 1u)] - is_immediate;
-        const std::size_t length = (std::size_t{1} << size_class) >> 1u;
+        // x | 1 keeps count_leading_zeros() away from 0
+        return size_class_by_leading_zeros[count_leading_zeros(x | 1u)];
+    }
 
-        // The first byte - the argument itself if it is immediate, else
-        // 0x17 + size_class - selected through a mask, then the length
-        // low-order bytes of the argument in network order, written as one
-        // 8-byte word whose bytes after the argument are scratch that
-        // the caller drops. For an immediate argument the word is all
-        // scratch; it is shifted as if length were 1, avoiding a shift by 64.
-        const std::uint64_t immediate_mask = std::uint64_t{0} - is_immediate;
-        out[0] = to_char_type(static_cast<std::uint8_t>(major_type + ((argument & immediate_mask) | ((0x17u + size_class) & ~immediate_mask))));
-        const unsigned unused_bits = 64u - 8u * static_cast<unsigned>(length + is_immediate);
-        const std::uint64_t tail = is_little_endian ? byte_swap(argument) >> unused_bits : argument << unused_bits;
+    /*!
+    @brief encode @a first_byte and the low-order bytes of @a value that
+           @a size_class calls for (none, or 1, 2, 4, or 8) in network order
+           to @a out
+    @return the number of characters of the encoding; up to
+            @ref integer_encoding_space characters at @a out are overwritten
+
+    The bytes are written as one byte and one 8-byte word whose bytes after
+    the value are scratch that the caller drops, so that writing them does not
+    depend on the size class. For class 0 the word is all scratch; it is
+    shifted by 60 bits rather than 64, which would be undefined.
+    */
+    std::size_t encode_first_byte_and_tail(CharType* out, const std::uint8_t first_byte, const unsigned size_class, const std::uint64_t value) const noexcept
+    {
+        out[0] = to_char_type(first_byte);
+        const unsigned unused_bits = 64u - ((8u << size_class) >> 1u);
+        const std::uint64_t tail = is_little_endian ? byte_swap(value) >> unused_bits : value << unused_bits;
         std::memcpy(out + 1, &tail, sizeof(tail));
-        return length + 1;
+        return ((std::size_t{1} << size_class) >> 1u) + 1;
+    }
+
+    /// characters encode_first_byte_and_tail() may overwrite: the first byte
+    /// and one 8-byte word
+    static constexpr std::size_t integer_encoding_space = 9;
+
+    /*!
+    @brief the 64 bits of a number_integer or number_unsigned value, and a mask
+           that is all ones if it is negative, else zero
+
+    Selected through masks rather than branches, as the type and the sign of
+    the values in an array of mixed signs alternate unpredictably (non-negative
+    integers are number_unsigned after parsing). Up to 64 bits, the sign is bit
+    63 of the result (a narrower integer is sign-extended); computing it with
+    masks keeps GCC from branching on the type. A wider integer has to be
+    compared.
+    */
+    static std::uint64_t integer_bits(const BasicJsonType& j, std::uint64_t& sign_mask) noexcept
+    {
+        const bool is_signed = j.m_data.m_type == value_t::number_integer;
+        const std::uint64_t raw = is_signed
+                                  ? static_cast<std::uint64_t>(j.m_data.m_value.number_integer)
+                                  : static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned);
+        sign_mask = sizeof(typename BasicJsonType::number_integer_t) <= sizeof(std::uint64_t)
+                    ? (std::uint64_t{0} - static_cast<std::uint64_t>(is_signed)) & (std::uint64_t{0} - (raw >> 63u))
+                    : std::uint64_t{0} - static_cast<std::uint64_t>(is_signed && j.m_data.m_value.number_integer < 0);
+        return raw;
+    }
+
+    /*!
+    @brief encode the head of a CBOR integer to @a out without branching on its
+           size
+    @return the number of characters of the head
+
+    Same output as @ref write_cbor_head. The lengths of strings and containers
+    are mostly predictable, so their heads keep the branches; the sizes of a
+    run of integers are not, so an integer's head is assembled without them.
+    */
+    std::size_t encode_cbor_integer_head(CharType* out, const std::uint8_t major_type, const std::uint64_t argument) const noexcept
+    {
+        // an argument of at most 23 is in size class 1 (one byte) and is moved
+        // to class 0, the first byte, by subtracting 1
+        const auto is_immediate = static_cast<unsigned>(argument <= 0x17u);
+        const unsigned size_class = integer_size_class(argument) - is_immediate;
+
+        // the first byte: the argument itself if it is immediate, else
+        // 0x17 + size_class, selected through a mask
+        const std::uint64_t immediate_mask = std::uint64_t{0} - is_immediate;
+        const auto first_byte = static_cast<std::uint8_t>(major_type + ((argument & immediate_mask) | ((0x17u + size_class) & ~immediate_mask)));
+        return encode_first_byte_and_tail(out, first_byte, size_class, argument);
     }
 
     /*!
@@ -24023,29 +24023,45 @@ class binary_writer
     void write_cbor_array(const BasicJsonType& j, const std::size_t depth)
     {
         write_cbor_head(0x80, j.m_data.m_value.array->size());
+        write_array_elements(j, [this](CharType * out, const BasicJsonType & el)
+        {
+            return encode_cbor_integer(out, el);
+        }, [this, depth](const BasicJsonType & el)
+        {
+            write_cbor(el, depth + 1);
+        });
+    }
 
-        // Runs of integers are encoded straight into space reserved from the
-        // sink for a whole run: the write pointer stays a local, where it would
-        // otherwise be reloaded from the sink for every value, as a store of a
-        // character may alias it.
-        constexpr std::size_t max_run = max_reserve_size / cbor_integer_head_space;
+    /*!
+    @brief write the elements of the array @a j, runs of integers with
+           @a encode_integer and all other values with @a write_value
+
+    Runs of integers are encoded straight into space reserved from the sink
+    for a whole run: the write pointer stays a local, where it would otherwise
+    be reloaded from the sink for every value, as a store of a character may
+    alias it.
+    */
+    template<typename EncodeInteger, typename WriteValue>
+    void write_array_elements(const BasicJsonType& j, EncodeInteger encode_integer, WriteValue write_value)
+    {
+        constexpr std::size_t max_run = max_reserve_size / integer_encoding_space;
         auto it = j.m_data.m_value.array->begin();
         const auto end = j.m_data.m_value.array->end();
         while (it != end)
         {
             if (it->is_number_integer())
             {
-                CharType* const start = oa.reserve(max_run * cbor_integer_head_space);
+                CharType* const start = oa.reserve(max_run * integer_encoding_space);
                 CharType* out = start;
                 for (std::size_t n = 0; n < max_run && it != end && it->is_number_integer(); ++n, ++it)
                 {
-                    out += encode_cbor_integer(out, *it);
+                    out += encode_integer(out, *it);
                 }
                 oa.commit(static_cast<std::size_t>(out - start));
             }
             else
             {
-                write_cbor(*it, depth + 1);
+                write_value(*it);
                 ++it;
             }
         }
@@ -24055,37 +24071,160 @@ class binary_writer
     @brief write a number_integer or number_unsigned value as a CBOR integer
 
     A negative integer n has major type 1 and the argument -1 - n, which is ~n.
-    The sign and the type select the major type and the argument through a
-    mask rather than a branch, as they alternate unpredictably in an array of
-    mixed signs.
+    Kept out of line, like the other per-value paths, so that write_cbor stays
+    small (runs of integers in an array are encoded inline instead).
     */
+    JSON_HEDLEY_NEVER_INLINE
     void write_cbor_integer(const BasicJsonType& j)
     {
-        oa.commit(encode_cbor_integer(oa.reserve(cbor_integer_head_space), j));
+        oa.commit(encode_cbor_integer(oa.reserve(integer_encoding_space), j));
     }
 
     /// encode a number_integer or number_unsigned value to @a out (see
     /// @ref write_cbor_integer) and return the number of characters
     std::size_t encode_cbor_integer(CharType* out, const BasicJsonType& j) const noexcept
     {
-        const bool is_signed = j.m_data.m_type == value_t::number_integer;
-        const std::uint64_t raw = is_signed
-                                  ? static_cast<std::uint64_t>(j.m_data.m_value.number_integer)
-                                  : static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned);
-        // All ones for a negative integer, else zero. Up to 64 bits, the sign is
-        // bit 63 of raw (a narrower integer is sign-extended); computing it
-        // with masks keeps GCC from branching on is_signed. A wider integer
-        // has to be compared.
-        const std::uint64_t sign_mask = sizeof(typename BasicJsonType::number_integer_t) <= sizeof(std::uint64_t)
-                                        ? (std::uint64_t{0} - static_cast<std::uint64_t>(is_signed)) & (std::uint64_t{0} - (raw >> 63u))
-                                        : std::uint64_t{0} - static_cast<std::uint64_t>(is_signed && j.m_data.m_value.number_integer < 0);
+        std::uint64_t sign_mask = 0;
+        const std::uint64_t raw = integer_bits(j, sign_mask);
         // ~raw is -1 - n in the 64 bits that are written
         return encode_cbor_integer_head(out, static_cast<std::uint8_t>(sign_mask & 0x20u), raw ^ sign_mask);
     }
 
-    /// characters encode_cbor_integer_head() may overwrite: the first byte and
-    /// one 8-byte word
-    static constexpr std::size_t cbor_integer_head_space = 9;
+    /*!
+    @brief whether the MessagePack integers of BasicJsonType are written by
+           @ref encode_msgpack_integer
+
+    It picks the format from the low 64 bits; a wider number type keeps the
+    range checks of @ref write_msgpack on the whole value.
+    */
+    static constexpr bool msgpack_integers_fit_64_bits() noexcept
+    {
+        return sizeof(typename BasicJsonType::number_integer_t) <= sizeof(std::uint64_t)
+               && sizeof(typename BasicJsonType::number_unsigned_t) <= sizeof(std::uint64_t);
+    }
+
+    /*!
+    @brief write a number_integer or number_unsigned value as a MessagePack
+           integer without branching on its sign or size
+
+    Same output as @ref write_msgpack: a non-negative integer as positive fixint
+    (< 128) or uint 8/16/32/64, a negative one as negative fixint (>= -32) or
+    int 8/16/32/64. Kept out of line (see @ref write_cbor_integer).
+    */
+    JSON_HEDLEY_NEVER_INLINE
+    void write_msgpack_integer(const BasicJsonType& j, std::true_type /*fits_64_bits*/)
+    {
+        oa.commit(encode_msgpack_integer(oa.reserve(integer_encoding_space), j));
+    }
+
+    /// encode a number_integer or number_unsigned value to @a out (see
+    /// @ref write_msgpack_integer) and return the number of characters
+    std::size_t encode_msgpack_integer(CharType* out, const BasicJsonType& j) const noexcept
+    {
+        std::uint64_t sign_mask = 0;
+        const std::uint64_t raw = integer_bits(j, sign_mask);
+
+        // A negative n fits int 8/16/32 exactly if 2 * (-1 - n) + 1 fits
+        // uint 8/16/32, so x gives the size class of either sign.
+        const std::uint64_t is_negative = sign_mask & 1u;
+        const std::uint64_t x = ((raw ^ sign_mask) << is_negative) | is_negative;
+
+        // A fixint is at most 127, or at least -32 (x at most 63). It is in
+        // size class 1 and is moved to class 0, the first byte, by subtracting 1.
+        const auto is_fixint = static_cast<unsigned>(x <= (127u ^ (sign_mask & 64u)));
+        const unsigned size_class = integer_size_class(x) - is_fixint;
+
+        // the first byte: the low byte of the integer for a fixint, else the
+        // marker 0xCC..0xCF (uint) or 0xD0..0xD3 (int), selected through a mask
+        const std::uint64_t fixint_mask = std::uint64_t{0} - is_fixint;
+        const std::uint64_t marker = 0xCBu + size_class + (sign_mask & 4u);
+        const auto first_byte = static_cast<std::uint8_t>((raw & fixint_mask) | (marker & ~fixint_mask));
+        return encode_first_byte_and_tail(out, first_byte, size_class, raw);
+    }
+
+    /// write a number_integer or number_unsigned value of a number type wider
+    /// than 64 bits as a MessagePack integer, with range checks on the whole value
+    void write_msgpack_integer(const BasicJsonType& j, std::false_type /*fits_64_bits*/)
+    {
+        if (j.m_data.m_type == value_t::number_unsigned)
+        {
+            write_msgpack_unsigned(static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned));
+            return;
+        }
+
+        if (j.m_data.m_value.number_integer >= 0)
+        {
+            // MessagePack does not differentiate between positive
+            // signed integers and unsigned integers.
+            write_msgpack_unsigned(static_cast<std::uint64_t>(j.m_data.m_value.number_integer));
+        }
+        else
+        {
+            if (j.m_data.m_value.number_integer >= -32)
+            {
+                // negative fixnum
+                write_number(static_cast<std::int8_t>(j.m_data.m_value.number_integer));
+            }
+            else if (j.m_data.m_value.number_integer >= (std::numeric_limits<std::int8_t>::min)() &&
+                     j.m_data.m_value.number_integer <= (std::numeric_limits<std::int8_t>::max)())
+            {
+                // int 8
+                oa.write_character(to_char_type(0xD0));
+                write_number(static_cast<std::int8_t>(j.m_data.m_value.number_integer));
+            }
+            else if (j.m_data.m_value.number_integer >= (std::numeric_limits<std::int16_t>::min)() &&
+                     j.m_data.m_value.number_integer <= (std::numeric_limits<std::int16_t>::max)())
+            {
+                // int 16
+                oa.write_character(to_char_type(0xD1));
+                write_number(static_cast<std::int16_t>(j.m_data.m_value.number_integer));
+            }
+            else if (j.m_data.m_value.number_integer >= (std::numeric_limits<std::int32_t>::min)() &&
+                     j.m_data.m_value.number_integer <= (std::numeric_limits<std::int32_t>::max)())
+            {
+                // int 32
+                oa.write_character(to_char_type(0xD2));
+                write_number(static_cast<std::int32_t>(j.m_data.m_value.number_integer));
+            }
+            else
+            {
+                // int 64
+                oa.write_character(to_char_type(0xD3));
+                write_number(static_cast<std::int64_t>(j.m_data.m_value.number_integer));
+            }
+        }
+    }
+
+    /*!
+    @brief write an array value (head and elements) as MessagePack
+
+    See @ref write_cbor_array.
+    */
+    JSON_HEDLEY_NEVER_INLINE
+    void write_msgpack_array(const BasicJsonType& j, const std::size_t depth)
+    {
+        write_msgpack_array_prefix(j.m_data.m_value.array->size(), j);
+        write_msgpack_array_elements(j, depth, std::integral_constant<bool, msgpack_integers_fit_64_bits()>());
+    }
+
+    void write_msgpack_array_elements(const BasicJsonType& j, const std::size_t depth, std::true_type /*fits_64_bits*/)
+    {
+        write_array_elements(j, [this](CharType * out, const BasicJsonType & el)
+        {
+            return encode_msgpack_integer(out, el);
+        }, [this, depth](const BasicJsonType & el)
+        {
+            write_msgpack(el, depth + 1);
+        });
+    }
+
+    void write_msgpack_array_elements(const BasicJsonType& j, const std::size_t depth, std::false_type /*fits_64_bits*/)
+    {
+        for (const auto& el : *j.m_data.m_value.array)
+        {
+            write_msgpack(el, depth + 1);
+        }
+    }
 
     /*!
     @brief write an object key as a CBOR text string
