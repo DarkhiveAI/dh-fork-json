@@ -35,6 +35,17 @@ std::vector<json> test_values()
         big_object[std::to_string(i)] = i;
     }
 
+    // large strings and binary values between small ones: a write too large
+    // for the space the vector sink has ahead takes a different path than a
+    // small one, and the small writes after it must still land behind it
+    json large_payloads = json::array();
+    for (int i = 0; i < 50; ++i)
+    {
+        large_payloads.push_back(std::string(300, static_cast<char>('a' + (i % 26))));
+        large_payloads.push_back(i);
+        large_payloads.push_back(json::binary(std::vector<std::uint8_t>(static_cast<std::size_t>(100 * i), static_cast<std::uint8_t>(i))));
+    }
+
     return
     {
         json(nullptr), json(true), json(false),
@@ -46,7 +57,8 @@ std::vector<json> test_values()
         json::array(), json::object(),
         json::array({1, 2, 3}), json({{"a", 1}, {"b", nullptr}}),
         json({{"nested", {{"deep", json::array({1, "two", 3.0, nullptr})}}}}),
-        big_array, big_object
+        big_array, big_object, large_payloads,
+        json::binary(std::vector<std::uint8_t>(5000, 0x42))
     };
 }
 
