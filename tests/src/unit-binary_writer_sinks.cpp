@@ -13,6 +13,7 @@ using nlohmann::json;
 
 #include <cstdint>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -179,6 +180,161 @@ TEST_CASE("binary writer output sinks")
             }
             CHECK(as_bytes == expected);
         }
+    }
+}
+
+namespace
+{
+
+// the CBOR head of an integer, encoded independently of binary_writer
+void reference_cbor_head(std::vector<std::uint8_t>& out, const std::uint8_t major_type, const std::uint64_t argument)
+{
+    if (argument <= 23)
+    {
+        out.push_back(static_cast<std::uint8_t>(major_type + argument));
+        return;
+    }
+
+    int length = 8;
+    std::uint8_t additional = 27;
+    if (argument <= 0xFF)
+    {
+        length = 1;
+        additional = 24;
+    }
+    else if (argument <= 0xFFFF)
+    {
+        length = 2;
+        additional = 25;
+    }
+    else if (argument <= 0xFFFFFFFF)
+    {
+        length = 4;
+        additional = 26;
+    }
+
+    out.push_back(static_cast<std::uint8_t>(major_type + additional));
+    for (int i = length - 1; i >= 0; --i)
+    {
+        out.push_back(static_cast<std::uint8_t>(argument >> (8 * i)));
+    }
+}
+
+// the CBOR encoding of an integer value
+void reference_cbor_integer(std::vector<std::uint8_t>& out, const json& j)
+{
+    if (j.is_number_unsigned())
+    {
+        reference_cbor_head(out, 0x00, j.get<std::uint64_t>());
+        return;
+    }
+
+    const auto n = j.get<std::int64_t>();
+    if (n >= 0)
+    {
+        reference_cbor_head(out, 0x00, static_cast<std::uint64_t>(n));
+    }
+    else
+    {
+        reference_cbor_head(out, 0x20, static_cast<std::uint64_t>(-1 - n));
+    }
+}
+
+// integers at every boundary of the CBOR head sizes, signed and unsigned
+std::vector<json> boundary_integers()
+{
+    std::vector<json> result;
+    const std::uint64_t boundaries[] =
+    {
+        0, 1, 22, 23, 24, 25, 254, 255, 256, 257, 65534, 65535, 65536, 65537,
+        4294967294ULL, 4294967295ULL, 4294967296ULL, 4294967297ULL,
+        9223372036854775806ULL, 9223372036854775807ULL, 9223372036854775808ULL,
+        18446744073709551614ULL, 18446744073709551615ULL
+    };
+    for (const std::uint64_t u : boundaries)
+    {
+        result.emplace_back(u);
+        if (u <= static_cast<std::uint64_t>((std::numeric_limits<std::int64_t>::max)()))
+        {
+            const auto n = static_cast<std::int64_t>(u);
+            result.emplace_back(static_cast<json::number_integer_t>(n));
+            result.emplace_back(static_cast<json::number_integer_t>(-n));
+            result.emplace_back(static_cast<json::number_integer_t>(-n - 1));
+        }
+    }
+    return result;
+}
+
+} // namespace
+
+// Arrays of integers are written in runs straight into space reserved from the
+// sink, with a branch-free head; check them against an independent encoder for
+// runs shorter and longer than one reservation, broken up by other values, and
+// through each sink.
+TEST_CASE("CBOR integer arrays")
+{
+    const std::vector<json> integers = boundary_integers();
+
+    for (const std::size_t length :
+            {
+                std::size_t{1}, std::size_t{27}, std::size_t{28}, std::size_t{29}, std::size_t{57}, std::size_t{1000}
+            })
+    {
+        for (const std::size_t break_every :
+                {
+                    std::size_t{0}, std::size_t{1}, std::size_t{7}, std::size_t{28}
+                })
+        {
+            CAPTURE(length)
+            CAPTURE(break_every)
+
+            json array = json::array();
+            std::vector<std::uint8_t> expected;
+            for (std::size_t i = 0; i < length; ++i)
+            {
+                if (break_every != 0 && i % (break_every + 1) == break_every)
+                {
+                    array.push_back("x");
+                    expected.push_back(0x61);
+                    expected.push_back('x');
+                }
+                else
+                {
+                    const json& value = integers[(i * 7) % integers.size()];
+                    array.push_back(value);
+                    reference_cbor_integer(expected, value);
+                }
+            }
+
+            std::vector<std::uint8_t> head;
+            reference_cbor_head(head, 0x80, length);
+            expected.insert(expected.begin(), head.begin(), head.end());
+
+            CHECK(json::to_cbor(array) == expected);
+
+            std::vector<std::uint8_t> through_adapter = {0xAA};
+            json::to_cbor(array, through_adapter);
+            CHECK(std::vector<std::uint8_t>(through_adapter.begin() + 1, through_adapter.end()) == expected);
+
+            std::ostringstream stream;
+            json::to_cbor(array, stream);
+            const std::string streamed = stream.str();
+            CHECK(std::vector<std::uint8_t>(streamed.begin(), streamed.end()) == expected);
+
+            CHECK(json::from_cbor(expected) == array);
+
+            // the same array as an object member, and as single values
+            const json object = {{"a", array}, {"b", array}};
+            CHECK(json::from_cbor(json::to_cbor(object)) == object);
+        }
+    }
+
+    for (const auto& value : integers)
+    {
+        CAPTURE(value)
+        std::vector<std::uint8_t> expected;
+        reference_cbor_integer(expected, value);
+        CHECK(json::to_cbor(value) == expected);
     }
 }
 

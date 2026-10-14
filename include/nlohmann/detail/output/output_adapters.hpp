@@ -9,6 +9,7 @@
 #pragma once
 
 #include <algorithm> // max
+#include <array> // array
 #include <cstddef> // size_t
 #include <cstring> // memcpy
 #include <memory> // shared_ptr, make_shared
@@ -50,8 +51,8 @@ template<typename CharType> struct output_adapter_protocol
 template<typename CharType>
 using output_adapter_t = std::shared_ptr<output_adapter_protocol<CharType>>;
 
-/// output_vector_sink appends writes of at least this many characters with
-/// insert() instead of copying them to the space it keeps ahead
+/// the largest number of characters a writer may reserve() from a sink at once;
+/// output_vector_sink also appends writes of at least this size with insert()
 constexpr std::size_t max_reserve_size = 256;
 
 /// @brief non-virtual output sink writing into a std::vector
@@ -130,6 +131,31 @@ class output_vector_sink
             std::memcpy(v->data() + position, s, length * sizeof(CharType));
             position += length;
         }
+    }
+
+    /// @brief space for writing up to @a length characters directly
+    ///
+    /// Returns a pointer to at least @a length (at most @ref max_reserve_size)
+    /// writable characters at the write position; @ref commit then keeps the
+    /// first ones of them. A writer can store whole words there and keep only
+    /// the bytes it needs, and keep its write pointer in a register across many
+    /// values instead of updating the sink after each.
+    JSON_HEDLEY_ALWAYS_INLINE
+    CharType* reserve(const std::size_t length)
+    {
+        JSON_ASSERT(length <= max_reserve_size);
+        if (JSON_HEDLEY_UNLIKELY(v->size() - position < length))
+        {
+            grow(length);
+        }
+        return v->data() + position;
+    }
+
+    /// keep the first @a length characters written to the space from reserve()
+    JSON_HEDLEY_ALWAYS_INLINE
+    void commit(const std::size_t length) noexcept
+    {
+        position += length;
     }
 
   private:
@@ -276,8 +302,24 @@ class output_adapter_sink
         oa->write_characters(s, length);
     }
 
+    /// space for writing up to @a length characters (see
+    /// output_vector_sink::reserve)
+    CharType* reserve(const std::size_t length) noexcept
+    {
+        JSON_ASSERT(length <= max_reserve_size);
+        static_cast<void>(length);
+        return reserved.data();
+    }
+
+    /// write the first @a length characters written to the space from reserve()
+    void commit(const std::size_t length)
+    {
+        oa->write_characters(reserved.data(), length);
+    }
+
   private:
     output_adapter_t<CharType> oa;
+    std::array<CharType, max_reserve_size> reserved{};
 };
 
 /// @brief whether std::basic_string<CharType> has a non-deprecated std::char_traits

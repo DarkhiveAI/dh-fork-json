@@ -23,6 +23,7 @@
     #include <cstdlib> // _byteswap_ushort, _byteswap_ulong, _byteswap_uint64
 #endif
 
+#include <nlohmann/detail/bit_ops.hpp>
 #include <nlohmann/detail/input/binary_reader.hpp>
 #include <nlohmann/detail/input/string_scan.hpp>
 #include <nlohmann/detail/macro_scope.hpp>
@@ -204,24 +205,12 @@ class binary_writer
             }
 
             case value_t::number_integer:
-            {
-                if (j.m_data.m_value.number_integer >= 0)
-                {
-                    // CBOR does not differentiate between positive signed
-                    // integers and unsigned integers
-                    write_cbor_head(0x00, static_cast<std::uint64_t>(j.m_data.m_value.number_integer));
-                }
-                else
-                {
-                    // a negative integer n is encoded as -1 - n
-                    write_cbor_head(0x20, static_cast<std::uint64_t>(-1 - j.m_data.m_value.number_integer));
-                }
-                break;
-            }
-
             case value_t::number_unsigned:
             {
-                write_cbor_head(0x00, j.m_data.m_value.number_unsigned);
+                // one case for both, so that an array mixing negative
+                // (number_integer) and non-negative (number_unsigned) values
+                // does not mispredict the switch
+                write_cbor_integer(j);
                 break;
             }
 
@@ -256,13 +245,7 @@ class binary_writer
 
             case value_t::array:
             {
-                // step 1: write control byte and the array size
-                write_cbor_head(0x80, j.m_data.m_value.array->size());
-
-                for (const auto& el : *j.m_data.m_value.array)
-                {
-                    write_cbor(el, depth + 1);
-                }
+                write_cbor_array(j, depth);
                 break;
             }
 
@@ -1950,6 +1933,127 @@ class binary_writer
             write_number(argument);
         }
     }
+
+    /*!
+    @brief encode the head of a CBOR integer to @a out without branching on its
+           size
+    @return the number of characters of the head; up to @ref cbor_integer_head_space
+            characters at @a out are overwritten
+
+    Same output as @ref write_cbor_head. The lengths of strings and containers
+    are mostly predictable, so their heads keep the branches; the sizes of a
+    run of integers are not, so an integer's head is assembled without them.
+    */
+    std::size_t encode_cbor_integer_head(CharType* out, const std::uint8_t major_type, const std::uint64_t argument) const noexcept
+    {
+        // The size class - 0 if the argument fits the first byte, else 1 to 4
+        // for 1, 2, 4, or 8 following bytes - is looked up from the number of
+        // leading zero bits instead of found by branches: the sizes of a stream
+        // of numbers are hard to predict, and a mispredicted branch costs more
+        // than writing the head.
+        static constexpr std::uint8_t size_class_by_leading_zeros[64] =
+        {
+            4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+            3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+            2, 2, 2, 2, 2, 2, 2, 2,
+            1, 1, 1, 1, 1, 1, 1, 1
+        };
+        // an argument of at most 23 is in the table's class 1 (one byte) and is
+        // moved to class 0 by subtracting 1; argument | 1 keeps
+        // count_leading_zeros() away from 0
+        const auto is_immediate = static_cast<unsigned>(argument <= 0x17u);
+        const unsigned size_class = size_class_by_leading_zeros[count_leading_zeros(argument | 1u)] - is_immediate;
+        const std::size_t length = (std::size_t{1} << size_class) >> 1u;
+
+        // The first byte - the argument itself if it is immediate, else
+        // 0x17 + size_class - selected through a mask, then the length
+        // low-order bytes of the argument in network order, written as one
+        // 8-byte word whose bytes after the argument are scratch that
+        // the caller drops. For an immediate argument the word is all
+        // scratch; it is shifted as if length were 1, avoiding a shift by 64.
+        const std::uint64_t immediate_mask = std::uint64_t{0} - is_immediate;
+        out[0] = to_char_type(static_cast<std::uint8_t>(major_type + ((argument & immediate_mask) | ((0x17u + size_class) & ~immediate_mask))));
+        const unsigned unused_bits = 64u - 8u * static_cast<unsigned>(length + is_immediate);
+        const std::uint64_t tail = is_little_endian ? byte_swap(argument) >> unused_bits : argument << unused_bits;
+        std::memcpy(out + 1, &tail, sizeof(tail));
+        return length + 1;
+    }
+
+    /*!
+    @brief write an array value (head and elements) as CBOR
+
+    Integer elements, the most common scalar, are written without a call to
+    @ref write_cbor. The loop is kept out of line: inlined into write_cbor, its
+    registers would be saved and restored on every call of write_cbor, which
+    is one call per value nested in an object.
+    */
+    JSON_HEDLEY_NEVER_INLINE
+    void write_cbor_array(const BasicJsonType& j, const std::size_t depth)
+    {
+        write_cbor_head(0x80, j.m_data.m_value.array->size());
+
+        // Runs of integers are encoded straight into space reserved from the
+        // sink for a whole run: the write pointer stays a local, where it would
+        // otherwise be reloaded from the sink for every value, as a store of a
+        // character may alias it.
+        constexpr std::size_t max_run = max_reserve_size / cbor_integer_head_space;
+        auto it = j.m_data.m_value.array->begin();
+        const auto end = j.m_data.m_value.array->end();
+        while (it != end)
+        {
+            if (it->is_number_integer())
+            {
+                CharType* const start = oa.reserve(max_run * cbor_integer_head_space);
+                CharType* out = start;
+                for (std::size_t n = 0; n < max_run && it != end && it->is_number_integer(); ++n, ++it)
+                {
+                    out += encode_cbor_integer(out, *it);
+                }
+                oa.commit(static_cast<std::size_t>(out - start));
+            }
+            else
+            {
+                write_cbor(*it, depth + 1);
+                ++it;
+            }
+        }
+    }
+
+    /*!
+    @brief write a number_integer or number_unsigned value as a CBOR integer
+
+    A negative integer n has major type 1 and the argument -1 - n, which is ~n.
+    The sign and the type select the major type and the argument through a
+    mask rather than a branch, as they alternate unpredictably in an array of
+    mixed signs.
+    */
+    void write_cbor_integer(const BasicJsonType& j)
+    {
+        oa.commit(encode_cbor_integer(oa.reserve(cbor_integer_head_space), j));
+    }
+
+    /// encode a number_integer or number_unsigned value to @a out (see
+    /// @ref write_cbor_integer) and return the number of characters
+    std::size_t encode_cbor_integer(CharType* out, const BasicJsonType& j) const noexcept
+    {
+        const bool is_signed = j.m_data.m_type == value_t::number_integer;
+        const std::uint64_t raw = is_signed
+                                  ? static_cast<std::uint64_t>(j.m_data.m_value.number_integer)
+                                  : static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned);
+        // All ones for a negative integer, else zero. Up to 64 bits, the sign is
+        // bit 63 of raw (a narrower integer is sign-extended); computing it
+        // with masks keeps GCC from branching on is_signed. A wider integer
+        // has to be compared.
+        const std::uint64_t sign_mask = sizeof(typename BasicJsonType::number_integer_t) <= sizeof(std::uint64_t)
+                                        ? (std::uint64_t{0} - static_cast<std::uint64_t>(is_signed)) & (std::uint64_t{0} - (raw >> 63u))
+                                        : std::uint64_t{0} - static_cast<std::uint64_t>(is_signed && j.m_data.m_value.number_integer < 0);
+        // ~raw is -1 - n in the 64 bits that are written
+        return encode_cbor_integer_head(out, static_cast<std::uint8_t>(sign_mask & 0x20u), raw ^ sign_mask);
+    }
+
+    /// characters encode_cbor_integer_head() may overwrite: the first byte and
+    /// one 8-byte word
+    static constexpr std::size_t cbor_integer_head_space = 9;
 
     /*!
     @brief write an object key as a CBOR text string
