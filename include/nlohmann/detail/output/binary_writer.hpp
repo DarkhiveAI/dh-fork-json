@@ -233,7 +233,7 @@ class binary_writer
                 {
                     throw_integer_out_of_range(j, "CBOR", "uint64");
                 }
-                write_cbor_head(0x00, static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned));
+                write_cbor_head(0x00, conditional_static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned));
                 break;
             }
 
@@ -1762,7 +1762,7 @@ class binary_writer
                 {
                     throw_integer_out_of_range(j, "BSON", "uint64");
                 }
-                return calc_bson_unsigned_size(static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned));
+                return calc_bson_unsigned_size(conditional_static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned));
 
             case value_t::string:
                 return calc_bson_string_size(*j.m_data.m_value.string, j);
@@ -1805,7 +1805,7 @@ class binary_writer
                 return write_bson_integer(name, static_cast<std::int64_t>(j.m_data.m_value.number_integer));
 
             case value_t::number_unsigned:
-                return write_bson_unsigned(name, static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned));
+                return write_bson_unsigned(name, conditional_static_cast<std::uint64_t>(j.m_data.m_value.number_unsigned));
 
             case value_t::string:
                 return write_bson_string(name, *j.m_data.m_value.string);
