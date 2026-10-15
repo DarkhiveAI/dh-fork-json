@@ -889,7 +889,9 @@ contains other characters (e.g., `1a`), or `-` where it cannot be used.
 
 ### json.exception.out_of_range.405
 
-The JSON Patch operations 'remove' and 'add' cannot be applied to the root element of the JSON value.
+The JSON Patch operations 'remove' and 'move' cannot be applied to the root element of the JSON value. The exception is
+also thrown when the parent or a reference token of an empty JSON Pointer is requested, for instance by
+[`back`](../api/json_pointer/back.md) or [`pop_back`](../api/json_pointer/pop_back.md).
 
 !!! failure "Example message"
 
@@ -916,7 +918,8 @@ double-precision number when `number_float_t` is `#!cpp float`.
 
 An integer number cannot be represented by the binary format it is serialized to:
 
-- [BON8](../features/binary_formats/bon8.md) only stores integers that fit into int64.
+- [BON8](../features/binary_formats/bon8.md) only stores integers that fit into int64, so
+  [`to_bon8`](../api/basic_json/to_bon8.md) throws for unsigned integers greater than 9223372036854775807.
 - [CBOR](../features/binary_formats/cbor.md), [MessagePack](../features/binary_formats/messagepack.md), and
   [BSON](../features/binary_formats/bson.md) store integers in at most 64 bits. With the default number types, every
   integer fits, but a [`number_integer_t`](../api/basic_json/number_integer_t.md) or
@@ -927,21 +930,24 @@ An integer number cannot be represented by the binary format it is serialized to
 [UBJSON](../features/binary_formats/ubjson.md) and [BJData](../features/binary_formats/bjdata.md) never throw this
 exception, because they serialize integers beyond 64 bits as high-precision numbers.
 
+!!! note "Former occurrences"
+
+    The UBJSON and BSON writers used to throw this exception as well:
+
+    - Since version 3.9.0, integer numbers beyond int64 are serialized as high-precision UBJSON numbers.
+    - Since version 3.12.0, integer numbers beyond int64 are serialized as uint64 BSON numbers.
+
+    Before version 3.13.0, CBOR, MessagePack, and BSON silently truncated integers wider than 64 bits, and BJData
+    truncated unsigned integers wider than 64 bits.
+
 !!! failure "Example messages"
 
     ```
-    integer number 9223372036854775808 cannot be represented by BON8 as it does not fit int64
+    integer number 18446744073709551615 cannot be represented by BON8 as it does not fit int64
     ```
     ```
     integer number 1267650600228229401496703205376 cannot be represented by CBOR as it does not fit [-2^64, 2^64-1]
     ```
-
-!!! note
-
-    Before version 3.13.0, CBOR, MessagePack, and BSON silently truncated integers wider than 64 bits, and BJData
-    truncated unsigned integers wider than 64 bits. This exception was previously thrown by UBJSON and BSON for
-    integers greater than 9223372036854775807; since version 3.9.0, such integers are serialized as high-precision
-    UBJSON numbers, and since version 3.12.0 as uint64 BSON numbers.
 
 ### json.exception.out_of_range.408
 
