@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 using nlohmann::json;
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <sstream>
@@ -308,14 +309,16 @@ void reference_msgpack_integer(std::vector<std::uint8_t>& out, const json& j)
 std::vector<json> boundary_integers()
 {
     std::vector<json> result;
-    const std::uint64_t boundaries[] =
+    const std::array<std::uint64_t, 38> boundaries =
     {
-        0, 1, 22, 23, 24, 25, 31, 32, 33, 126, 127, 128, 129, 254, 255, 256, 257,
-        32766, 32767, 32768, 32769, 65534, 65535, 65536, 65537,
-        2147483646ULL, 2147483647ULL, 2147483648ULL, 2147483649ULL,
-        4294967294ULL, 4294967295ULL, 4294967296ULL, 4294967297ULL,
-        9223372036854775806ULL, 9223372036854775807ULL, 9223372036854775808ULL,
-        18446744073709551614ULL, 18446744073709551615ULL
+        {
+            0, 1, 22, 23, 24, 25, 31, 32, 33, 126, 127, 128, 129, 254, 255, 256, 257,
+            32766, 32767, 32768, 32769, 65534, 65535, 65536, 65537,
+            2147483646ULL, 2147483647ULL, 2147483648ULL, 2147483649ULL,
+            4294967294ULL, 4294967295ULL, 4294967296ULL, 4294967297ULL,
+            9223372036854775806ULL, 9223372036854775807ULL, 9223372036854775808ULL,
+            18446744073709551614ULL, 18446744073709551615ULL
+        }
     };
     for (const std::uint64_t u : boundaries)
     {
@@ -323,9 +326,9 @@ std::vector<json> boundary_integers()
         if (u <= static_cast<std::uint64_t>((std::numeric_limits<std::int64_t>::max)()))
         {
             const auto n = static_cast<std::int64_t>(u);
-            result.emplace_back(static_cast<json::number_integer_t>(n));
-            result.emplace_back(static_cast<json::number_integer_t>(-n));
-            result.emplace_back(static_cast<json::number_integer_t>(-n - 1));
+            result.emplace_back(n);
+            result.emplace_back(-n);
+            result.emplace_back(-n - 1);
         }
     }
     return result;
