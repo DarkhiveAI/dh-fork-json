@@ -8,10 +8,13 @@
 
 #include <benchmark/benchmark.h>
 #include <nlohmann/json.hpp>
+#include <array>
 #include <cstdint>
+#include <deque>
 #include <fstream>
 #include <map>
 #include <numeric>
+#include <set>
 #include <string>
 #include <vector>
 #include <test_data.hpp>
@@ -1143,5 +1146,28 @@ static void ToJsonStrings(benchmark::State& state, const bool move)
 }
 BENCHMARK_CAPTURE(ToJsonStrings, copy, false);
 BENCHMARK_CAPTURE(ToJsonStrings, move, true);
+
+// conversion of a JSON array into standard containers
+template<typename Container>
+static void GetArray(benchmark::State& state)
+{
+    json j = json::array();
+    for (int i = 0; i < 1000; ++i)
+    {
+        j.push_back(i);
+    }
+
+    for (auto _ : state)
+    {
+        auto c = j.get<Container>();
+        benchmark::DoNotOptimize(c);
+    }
+    state.SetItemsProcessed(state.iterations() * 1000);
+}
+
+BENCHMARK_TEMPLATE(GetArray, std::vector<int>);
+BENCHMARK_TEMPLATE(GetArray, std::deque<int>);
+BENCHMARK_TEMPLATE(GetArray, std::set<int>);
+BENCHMARK_TEMPLATE(GetArray, std::array<int, 1000>);
 
 BENCHMARK_MAIN();
