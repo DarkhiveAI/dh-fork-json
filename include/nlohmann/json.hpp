@@ -630,7 +630,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
                     object = nullptr;  // silence warning, see #821
                     if (JSON_HEDLEY_UNLIKELY(t == value_t::null))
                     {
-                        JSON_THROW(other_error::create(detail::exception_id::internal_error, "961c151d2e87f2686a955a9be24d316f1362bf21 3.12.0", nullptr)); // LCOV_EXCL_LINE
+                        detail::throw_literal<other_error>(detail::exception_id::internal_error, "961c151d2e87f2686a955a9be24d316f1362bf21 3.12.0", nullptr); // LCOV_EXCL_LINE
                     }
                     break;
                 }
@@ -2348,7 +2348,7 @@ public:
             // if an object is wanted but impossible, throw an exception
             if (JSON_HEDLEY_UNLIKELY(manual_type == value_t::object && !is_an_object))
             {
-                JSON_THROW(type_error::create(detail::exception_id::object_from_non_pairs, "cannot create object from initializer list", nullptr));
+                detail::throw_literal<type_error>(detail::exception_id::object_from_non_pairs, "cannot create object from initializer list", nullptr);
             }
         }
 
@@ -2468,7 +2468,7 @@ public:
         // make sure the iterator fits the current value
         if (JSON_HEDLEY_UNLIKELY(first.m_object != last.m_object))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::iterators_incompatible, "iterators are not compatible", nullptr));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::iterators_incompatible, "iterators are not compatible", nullptr);
         }
 
         // copy type from the first iterator
@@ -2487,7 +2487,7 @@ public:
                 if (JSON_HEDLEY_UNLIKELY(!first.m_it.primitive_iterator.is_begin()
                                          || !last.m_it.primitive_iterator.is_end()))
                 {
-                    JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_range_out_of_range, "iterators out of range", first.m_object));
+                    detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_range_out_of_range, "iterators out of range", first.m_object);
                 }
                 break;
             }
@@ -2555,7 +2555,7 @@ public:
             case value_t::null:
             case value_t::discarded:
             default:
-                JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_range_of_null, detail::concat("cannot construct with iterators from ", first.m_object->type_name()), first.m_object));
+                throw_iterator_range_of_null(first.m_object);
         }
 
         set_parents();
@@ -2936,6 +2936,40 @@ public:
         return is_binary() ? m_data.m_value.binary : nullptr;
     }
 
+    /// out-of-line throw helpers (message construction kept out of the hot paths)
+    JSON_HEDLEY_NO_RETURN JSON_HEDLEY_NEVER_INLINE
+    static void throw_iterator_range_of_null(const basic_json* obj)
+    {
+        JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_range_of_null, detail::concat("cannot construct with iterators from ", obj->type_name()), obj));
+    }
+
+    JSON_HEDLEY_NO_RETURN JSON_HEDLEY_NEVER_INLINE
+    static void throw_incompatible_reference_type(const basic_json& obj)
+    {
+        JSON_THROW(type_error::create(detail::exception_id::incompatible_reference_type, detail::concat("incompatible ReferenceType for get_ref, actual type is ", obj.type_name()), &obj));
+    }
+
+    JSON_HEDLEY_NO_RETURN JSON_HEDLEY_NEVER_INLINE
+    static void throw_array_index_exceeds_size_type(size_type idx)
+    {
+        JSON_THROW(std::length_error(detail::concat("array index ", std::to_string(idx), " exceeds size_type")));
+    }
+
+    /// @throw out_of_range.401
+    JSON_HEDLEY_NO_RETURN JSON_HEDLEY_NEVER_INLINE
+    static void throw_array_index_out_of_range(size_type idx, const basic_json& j)
+    {
+        JSON_THROW(out_of_range::create(detail::exception_id::array_index_out_of_range, detail::concat("array index ", std::to_string(idx), " is out of range"), &j));
+    }
+
+    /// @throw out_of_range.403
+    template<typename KeyType>
+    JSON_HEDLEY_NO_RETURN JSON_HEDLEY_NEVER_INLINE
+    static void throw_key_not_found(const KeyType& key, const basic_json& j)
+    {
+        JSON_THROW(out_of_range::create(detail::exception_id::key_not_found, detail::concat("key '", key, "' not found"), &j));
+    }
+
     /*!
     @brief helper function to implement get_ref()
 
@@ -2958,7 +2992,7 @@ public:
             return *ptr;
         }
 
-        JSON_THROW(type_error::create(detail::exception_id::incompatible_reference_type, detail::concat("incompatible ReferenceType for get_ref, actual type is ", obj.type_name()), &obj));
+        throw_incompatible_reference_type(obj);
     }
 
   public:
@@ -3406,7 +3440,7 @@ public:
             // std::map or ordered_map) never moves from its argument, so key is still
             // valid here regardless of whether KeyType was deduced as an rvalue reference
             // NOLINTNEXTLINE(bugprone-use-after-move,hicpp-invalid-access-moved)
-            JSON_THROW(out_of_range::create(detail::exception_id::key_not_found, detail::concat("key '", key_for_message(key), "' not found"), &j));
+            throw_key_not_found(key_for_message(key), j);
         }
         return it->second;
     }
@@ -3443,7 +3477,7 @@ public:
 
         if (JSON_HEDLEY_UNLIKELY(idx >= j.m_data.m_value.array->size()))
         {
-            JSON_THROW(out_of_range::create(detail::exception_id::array_index_out_of_range, detail::concat("array index ", std::to_string(idx), " is out of range"), &j));
+            throw_array_index_out_of_range(idx, j);
         }
 
         return (*j.m_data.m_value.array)[idx];
@@ -3561,7 +3595,7 @@ public:
                 // resize() rejects other indices that are too large to represent
                 if (JSON_HEDLEY_UNLIKELY(idx == (std::numeric_limits<size_type>::max)()))
                 {
-                    JSON_THROW(std::length_error(detail::concat("array index ", std::to_string(idx), " exceeds size_type")));
+                    throw_array_index_exceeds_size_type(idx);
                 }
 #if JSON_DIAGNOSTICS
                 // remember array size & capacity before resizing
@@ -3899,7 +3933,7 @@ public:
         // make sure the iterator fits the current value
         if (JSON_HEDLEY_UNLIKELY(this != pos.m_object))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this);
         }
 
         IteratorType result = end();
@@ -3915,7 +3949,7 @@ public:
             {
                 if (JSON_HEDLEY_UNLIKELY(!pos.m_it.primitive_iterator.is_begin()))
                 {
-                    JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_out_of_range, "iterator out of range", this));
+                    detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_out_of_range, "iterator out of range", this);
                 }
 
                 m_data.m_value.destroy(m_data.m_type);
@@ -3957,7 +3991,7 @@ public:
         // make sure the iterator fits the current value
         if (JSON_HEDLEY_UNLIKELY(this != first.m_object || this != last.m_object))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_range_from_other_value, "iterators do not fit current value", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_range_from_other_value, "iterators do not fit current value", this);
         }
 
         IteratorType result = end();
@@ -3974,7 +4008,7 @@ public:
                 if (JSON_HEDLEY_UNLIKELY(!first.m_it.primitive_iterator.is_begin()
                                          || !last.m_it.primitive_iterator.is_end()))
                 {
-                    JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_range_out_of_range, "iterators out of range", this));
+                    detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_range_out_of_range, "iterators out of range", this);
                 }
 
                 m_data.m_value.destroy(m_data.m_type);
@@ -4073,7 +4107,7 @@ public:
         {
             if (JSON_HEDLEY_UNLIKELY(idx >= size()))
             {
-                JSON_THROW(out_of_range::create(detail::exception_id::array_index_out_of_range, detail::concat("array index ", std::to_string(idx), " is out of range"), this));
+                throw_array_index_out_of_range(idx, *this);
             }
 
             m_data.m_value.array->erase(m_data.m_value.array->begin() + static_cast<difference_type>(idx));
@@ -4761,7 +4795,7 @@ public:
             // check if iterator pos fits to this JSON value
             if (JSON_HEDLEY_UNLIKELY(pos.m_object != this))
             {
-                JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this));
+                detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this);
             }
 
             // insert to array and return iterator
@@ -4781,7 +4815,7 @@ public:
             // check if iterator pos fits to this JSON value
             if (JSON_HEDLEY_UNLIKELY(pos.m_object != this))
             {
-                JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this));
+                detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this);
             }
 
             // moving into a local first keeps this safe even if val aliases
@@ -4803,7 +4837,7 @@ public:
             // check if iterator pos fits to this JSON value
             if (JSON_HEDLEY_UNLIKELY(pos.m_object != this))
             {
-                JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this));
+                detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this);
             }
 
             // insert to array and return iterator
@@ -4826,24 +4860,24 @@ public:
         // check if iterator pos fits to this JSON value
         if (JSON_HEDLEY_UNLIKELY(pos.m_object != this))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this);
         }
 
         // check if range iterators belong to the same JSON object
         if (JSON_HEDLEY_UNLIKELY(first.m_object != last.m_object))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::insert_range_incompatible, "iterators do not fit", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::insert_range_incompatible, "iterators do not fit", this);
         }
 
         if (JSON_HEDLEY_UNLIKELY(first.m_object == this))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::insert_range_into_itself, "passed iterators may not belong to container", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::insert_range_into_itself, "passed iterators may not belong to container", this);
         }
 
         // passed iterators must belong to arrays
         if (JSON_HEDLEY_UNLIKELY(!first.m_object->is_array()))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_from_other_value, "iterators first and last must point to arrays", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_from_other_value, "iterators first and last must point to arrays", this);
         }
 
         // insert to array and return iterator
@@ -4863,7 +4897,7 @@ public:
         // check if iterator pos fits to this JSON value
         if (JSON_HEDLEY_UNLIKELY(pos.m_object != this))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_from_other_value, "iterator does not fit current value", this);
         }
 
         // copy the values first: ilist may refer to elements of this array
@@ -4891,13 +4925,13 @@ public:
         // check if range iterators belong to the same JSON object
         if (JSON_HEDLEY_UNLIKELY(first.m_object != last.m_object))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::insert_range_incompatible, "iterators do not fit", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::insert_range_incompatible, "iterators do not fit", this);
         }
 
         // passed iterators must belong to objects
         if (JSON_HEDLEY_UNLIKELY(!first.m_object->is_object()))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::iterator_from_other_value, "iterators first and last must point to objects", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::iterator_from_other_value, "iterators first and last must point to objects", this);
         }
 
         m_data.m_value.object->insert(first.m_it.object_iterator, last.m_it.object_iterator);
@@ -4932,7 +4966,7 @@ public:
         // check if range iterators belong to the same JSON object
         if (JSON_HEDLEY_UNLIKELY(first.m_object != last.m_object))
         {
-            JSON_THROW(invalid_iterator::create(detail::exception_id::insert_range_incompatible, "iterators do not fit", this));
+            detail::throw_literal<invalid_iterator>(detail::exception_id::insert_range_incompatible, "iterators do not fit", this);
         }
 
         // passed iterators must belong to objects
