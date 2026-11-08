@@ -1081,6 +1081,11 @@ struct sweep_allocator
         ::new (const_cast<void*>(static_cast<const volatile void*>(p))) U(std::forward<Args>(args)...);
     }
 
+    // libc++ probes whether construct() is usable for const objects (when
+    // checking for trivial copies); this must not be viable then
+    template<class U, class... Args>
+    void construct(const U* /*unused*/, const Args& ... /*unused*/) = delete;
+
     template<class U>
     void destroy(U* p) noexcept
     {
